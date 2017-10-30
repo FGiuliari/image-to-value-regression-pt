@@ -11,12 +11,12 @@ import dataset
 #%% Load dataset.
 
 
-nb_epochs = 10
-batch_size = 1
+nb_epochs = 100
+batch_size = 48
 shuffle_train_set = True
 use_batch_norm = True
 use_dropout = False
-use_vgg16_basemodel = True
+use_vgg16_basemodel = False
 
 
 # i dati sono già normalizzati tra 0 e 1, quindi rimuovo 0.5 per centrare in 0 l'intero dataset
@@ -92,10 +92,10 @@ class Net(nn.Module):
                 self.base_model.requires_grad = True
         else:
             self.pool = nn.MaxPool2d(2, 2) # handle per il pooling
-            self.conv1 = nn.Conv2d(input_shape[0], 64, 5)
-            self.conv1_bn = nn.BatchNorm2d(64)
-            self.conv2 = nn.Conv2d(64, 128, 3)
-            self.conv2_bn = nn.BatchNorm2d(128)
+            self.conv1 = nn.Conv2d(input_shape[0], 128, 5)
+            self.conv1_bn = nn.BatchNorm2d(128)
+            self.conv2 = nn.Conv2d(128, 256, 3)
+            self.conv2_bn = nn.BatchNorm2d(256)
 
         # calcolo una volta il risultato del forward pass relativo
         # alle sole features della rete, così da stimare il numero
@@ -103,10 +103,10 @@ class Net(nn.Module):
         x = self._features(Variable(torch.zeros(1, *input_shape)))
         self.nfts = x.numel()
         
-        self.fc1 = nn.Linear(self.nfts, 2048)
-        self.fc2 = nn.Linear(2048, 512)
-        self.fc3 = nn.Linear(512, 256)
-        self.fc4 = nn.Linear(256, 1)
+        self.fc1 = nn.Linear(self.nfts, 512)
+        self.fc2 = nn.Linear(512, 256)
+        self.fc3 = nn.Linear(256, 128)
+        self.fc4 = nn.Linear(128, 1)
     
     def _features(self, x):
         if self.use_base_model:
@@ -168,15 +168,14 @@ print(net)
 import torch.optim as optim
 
 criterion = nn.SmoothL1Loss()
-optimizer = optim.SGD(net.parameters(), lr=0.01, momentum=0.9, weight_decay=0.001)
+optimizer = optim.SGD(net.parameters(), lr=0.01, momentum=0.9, weight_decay=0.0005)
 #optimizer = optim.Adam(net.parameters(), lr=0.001, weight_decay=0.001)
 
 
 def lr_scheduler(optimizer, epoch=None, lr_decay=0.001, step=1):
     """Decay learning rate by a factor of lr_decay every step epochs.
-    If epoch is None, the learning rate is update immediately.
     """
-    if epoch is None or (epoch+1) % step == 0:
+    if epoch is None or step == 1 or (epoch+1) % step == 0:
         for param_group in optimizer.param_groups:
             param_group['lr'] *= (1 - lr_decay)
     return optimizer
@@ -224,9 +223,16 @@ if os.path.exists(model_name):
 
 else:
 
+    best_test_loss = float('Inf')
+    best_epoch_id = 0
+    valid_training = True
+
     for epoch in range(nb_epochs):
 
-        #optimizer = lr_scheduler(optimizer, epoch, lr_decay=0.5, step=2)
+        if not valid_training:
+            break
+
+        optimizer = lr_scheduler(optimizer, lr_decay=0.25)
 
         net.train() # abilita il training del modello; eval() congela il training
 
@@ -236,7 +242,7 @@ else:
         for i, data in enumerate(train_loader, 0):
             inputs, targets = data
             
-            optimizer = lr_scheduler(optimizer, None, lr_decay=0.0005)
+            optimizer = lr_scheduler(optimizer, lr_decay=0.001)
 
             if HAS_CUDA:
             # siccome la rete è inviata alla GPU, tutti i tensori che
@@ -253,6 +259,12 @@ else:
             outputs = net(Variable(inputs))
             # calcolo la loss sulla base dell'output e del ground truth
             loss = criterion(outputs, Variable(targets))
+
+            if loss.data[0] == float('Inf') or loss.data[0] is float('NaN'):
+                print('Early stop due to invalid loss value')
+                valid_training = False
+                break
+
             # propago l'errore nella rete, aggiornando i GRADIENTI della rete
             loss.backward()
             # aggiorno i PESI della rete sulla base dei gradienti
@@ -265,19 +277,24 @@ else:
                 print('[%2d/%2d, %4d/%4d] loss: %.3f' % (epoch + 1, nb_epochs, i + 1, max_steps, running_loss / step))
                 running_loss = 0.0
 
-        # Testing.
-        print('Evaluating...')
-        train_loss, train_mae = evaluate(net, train_set, 8)
-        test_loss, test_mae = evaluate(net, test_set, 8)
-        print('Loss =>\tTrain: %.3f\tTest: %.3f' % (train_loss, test_loss))
-        #print('MAE ==>\tTrain: %.1f\tTest: %.1f' % (train_mae, test_mae))
+        if valid_training:
+            # Testing.
+            print('Evaluating...')
+            train_loss, train_mae = evaluate(net, train_set, 48)
+            test_loss, test_mae = evaluate(net, test_set, 48)
+            print('Loss =>\tTrain: %.3f\tTest: %.3f' % (train_loss, test_loss))
+            #print('MAE ==>\tTrain: %.1f\tTest: %.1f' % (train_mae, test_mae))
 
-        print('Saving checkpoint...')
-        torch.save(net.state_dict(), 'ckpt_' + str(epoch) + '.pth')
+            if test_loss < best_test_loss:
+                print('Saving checkpoint at epoch', epoch)
+                torch.save(net.state_dict(), 'checkpoint.pth')
+                best_test_loss = test_loss
+                best_epoch_id = epoch
 
-    print('Finished training')
-
-    print('Saving final model...')
-    torch.save(net.state_dict(), model_name)
+    if valid_training:
+        print('Finished training')
+        print('Saving final model...')
+        torch.save(net.state_dict(), model_name)
+        print('Best trained model at epoch', best_epoch_id, 'with test loss', best_test_loss)
 
 print('DONE')
