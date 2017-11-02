@@ -1,4 +1,4 @@
-# Image to Value Regressor using Deep Learning
+# Image to Value Regression using Deep Learning
 
 ## Download datasets
 
