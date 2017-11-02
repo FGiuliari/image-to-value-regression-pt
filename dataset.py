@@ -76,6 +76,8 @@ class FATSYNTH(torch.utils.data.Dataset):
     '''Synthetic fat Dataset.
 
     Args:
+        name (string): Dataset name in ['Full', 'HeadLess', 'HeadLegLess', 'HeadLegArmLess'].
+        nb_channels (int): Number of duplicated channels for each depth image.
         train (bool, optional): If True, creates dataset from training set, otherwise
             creates from test set.
         transform (callable, optional): A function/transform that takes in an PIL image
@@ -114,10 +116,7 @@ class FATSYNTH(torch.utils.data.Dataset):
             image, target = self.train_data[index], self.train_values[index]
         else:
             image, target = self.test_data[index], self.test_values[index]
-
-        # doing this so that it is consistent with all other datasets
-        # to return a PIL Image
-        image = np.swapaxes(image, 0, 1)
+            
         image = Image.fromarray(image)
 
         if self.transform is not None:
@@ -151,7 +150,8 @@ class FATDATA(torch.utils.data.Dataset):
     '''FatNet Dataset.
 
     Args:
-        name (string): Dataset name [FullR, HeadLegArmlessR, HeadLeglessR, HeadlessR].
+        name (string): Dataset name in ['Full', 'HeadLess', 'HeadLegLess', 'HeadLegArmLess'].
+        nb_channels (int): Number of duplicated channels for each depth image.
         train (bool, optional): If True, creates dataset from training set, otherwise
             creates from test set.
         transform (callable, optional): A function/transform that takes in an PIL image
@@ -159,10 +159,12 @@ class FATDATA(torch.utils.data.Dataset):
     
     '''
 
-    def __init__(self, name, train=True, transform=None):
-        assert name in ['Full_ch1', 'HeadLegArmLess_ch1', 'HeadLegLess_ch1', 'HeadLess_ch1',
-                        'Full_ch3', 'HeadLegArmLess_ch3', 'HeadLegLess_ch3', 'HeadLess_ch3']
-        self.matfile = '/media/Data/datasets/image-to-value-regression-using-deep-learning/sportsmen/bin_data/' + name + '.mat'
+    def __init__(self, name, nb_channels, train=True, transform=None):
+        assert name in ['Full', 'HeadLess', 'HeadLegLess', 'HeadLegArmLess']
+        matfile = name + '_ch' + str(nb_channels) + '.mat'
+        
+        self.nb_channels = nb_channels
+        self.matfile = '/media/Data/datasets/image-to-value-regression-using-deep-learning/sportsmen/bin_data/' + matfile
         self.transform = transform
         self.train = train  # training set or test set
 
@@ -195,15 +197,12 @@ class FATDATA(torch.utils.data.Dataset):
         else:
             image, target, label = self.test_data[index], self.test_values[index], self.test_labels[index]
 
-        # doing this so that it is consistent with all other datasets
-        # to return a PIL Image
-        #image = np.transpose(image, (1, 2, 0))
         image = Image.fromarray(image)
 
         if self.transform is not None:
             image = self.transform(image)
 
-        return image, target, str(label)
+        return image, target #, str(label)
     
     def __len__(self):
         if self.train:
