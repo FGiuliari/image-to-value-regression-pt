@@ -36,20 +36,12 @@ use_vgg16_basemodel = False
 
 nb_channels = 3 if use_vgg16_basemodel else 1
 
+# the images are normalized between 0 and 1 (thanks to the ToTensor transformation) and then normalized between -1 and +1.
+transf = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,) * nb_channels, (0.5,) * nb_channels)])
 
-# i dati sono già normalizzati tra 0 e 1, quindi rimuovo 0.5 per centrare in 0 l'intero dataset
-# e moltiplico per 2 (dividendo per 0.5) in modo da scalare il dataset tra -1 e +1
-transf = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
-
-# scarico il dataset e lo trasformo in fase di caricamento
-#train_set = dataset.FACES(train=True, transform=transf)
 train_set = dataset.FATSYNTH('HeadLegArmLess', nb_channels, train=True, transform=transf)
-# il dataset è salvato come una struttura su cui iterare, quindi creo un oggetto capace di leggerlo
-# in maniera iterativa, impostando il numero di thread da lanciare per questo compito
 train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, shuffle=shuffle_train_set, num_workers=0)
 
-# come per il training set, ma carico il testing set
-#test_set = dataset.FACES(train=False, transform=transf)
 test_set = dataset.FATSYNTH('HeadLegArmLess', nb_channels, train=False, transform=transf)
 test_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=0)
 
@@ -103,13 +95,11 @@ import torch.nn.functional as F
 import torchvision.models as models
 
 
-# ogni rete è un "modulo"
+# to build a network, extend the class nn.Module
 class Net(nn.Module):
     
     def __init__(self, input_shape, vgg16_basemodel=True, batch_normalization=False, dropout=False):
-        # definisco le componenti della rete (dimensionalità)
-        # ma non specifico ancora come e dove dovranno essere
-        # calcolati
+        # define the network components but not the actual architecture
         super(Net, self).__init__()
 
         self.use_base_model = vgg16_basemodel
@@ -124,15 +114,14 @@ class Net(nn.Module):
             for param in self.base_model.parameters():
                 self.base_model.requires_grad = True
         else:
-            self.pool = nn.MaxPool2d(2, 2) # handle per il pooling
+            self.pool = nn.MaxPool2d(2, 2)
             self.conv1 = nn.Conv2d(input_shape[0], 32, 5)
             self.conv1_bn = nn.BatchNorm2d(32)
             self.conv2 = nn.Conv2d(32, 64, 3)
             self.conv2_bn = nn.BatchNorm2d(64)
 
-        # calcolo una volta il risultato del forward pass relativo
-        # alle sole features della rete, così da stimare il numero
-        # delle features che andranno processate dal classificatore
+        # to compute the number of vectorized features we need to compute
+        # once the forward pass on the feature_extractor
         x = self._features(Variable(torch.zeros(1, *input_shape)))
         self.nfts = x.numel()
         
@@ -166,11 +155,10 @@ class Net(nn.Module):
         x = self.fc4(x)
         return x
     
-    # definisco il comportamento della rete, potendo dividere anche il
-    # processing in base all'hardware disponibile (GPU)
+    # compute at runtime the forward pass
     def forward(self, x):
         x = self._features(x)
-        # "view" è una funzione cost-free (come "reshape" per numpy)
+        # "view" is a cost-free function (as "reshape" in numpy)
         x = x.view(-1, self.nfts)
         x = self._regressor(x)
         return x
@@ -196,8 +184,7 @@ print(net)
 
 
 if HAS_CUDA:
-    # tutti i tensori della rete sono convertiti automaticamente
-    # in tensori cuda, adatti al calcolo su GPU
+    # all the tensors in the module are converted to cuda
     net.cuda(gpu_id)
 
 
