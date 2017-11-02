@@ -27,18 +27,19 @@ if HAS_CUDA:
 # Load dataset.
 
 
-task = 'fat-from-depth'
+task = 'fat-from-depth' # age-from-faces, gender-from-depth, fat-from-depth
 
-nb_epochs = 100 # max number of training epochs
-batch_size = 1 # <== reduce this value if you encounter memory errors
+nb_epochs = 60 # max number of training epochs
+batch_size = 24 # <== reduce this value if you encounter memory errors
 shuffle_train_set = True
 use_batch_norm = True
 use_dropout = False
-use_vgg16_basemodel = True
-use_data_augmentation_hflip = True
+use_vgg16_basemodel = False
+use_data_augmentation_hflip = True # WARNING - data augmentation doubles the batch size
 
-nb_channels = 3 if use_vgg16_basemodel else 1 # vgg16 requires RGB images
-target_shape = (nb_channels,) + (224, 224) if use_vgg16_basemodel else (180, 120)
+nb_channels = 3 if use_vgg16_basemodel or task == 'age-from-faces' else 1 # vgg16 requires RGB images
+target_shape = (180, 120) if task == 'age-from-faces' else (224, 224)
+target_shape = (nb_channels,) + target_shape
 
 # the images are normalized between 0 and 1 (thanks to the ToTensor transformation) and then normalized between -1 and +1.
 transf = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,) * nb_channels, (0.5,) * nb_channels)])
@@ -67,7 +68,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-
 def imshow(img):
     img = img / 2 + 0.5 # unnomalize
     plt.imshow(np.transpose(img.numpy(), (1, 2, 0))) # channel last
@@ -92,8 +92,8 @@ def show_stats(x, title):
     print('> [min, max]:', np.min(x), np.max(x))
 
 
-#show_stats(train_set.train_values, 'TRAIN value distribution')
-#show_stats(test_set.test_values, 'TEST value distribution')
+show_stats(train_set.train_values, 'TRAIN value distribution')
+show_stats(test_set.test_values, 'TEST value distribution')
 
 plt.show()
 
@@ -139,7 +139,9 @@ class Net(nn.Module):
         self.nfts = x.numel()
         
         self.fc1 = nn.Linear(self.nfts, 512)
-        self.fc2 = nn.Linear(512, 1)
+        self.fc2 = nn.Linear(512, 256)
+        self.fc3 = nn.Linear(256, 128)
+        self.fc4 = nn.Linear(128, 1)
     
     def _features(self, x):
         if self.use_base_model:
@@ -157,7 +159,13 @@ class Net(nn.Module):
         x = F.relu(self.fc1(x))
         if self.use_dropout:
             x = F.dropout(x)
-        x = self.fc2(x)
+        x = F.relu(self.fc2(x))
+        if self.use_dropout:
+            x = F.dropout(x)
+        x = F.relu(self.fc3(x))
+        if self.use_dropout:
+            x = F.dropout(x)
+        x = self.fc4(x)
         return x
     
     # compute at runtime the forward pass
@@ -200,7 +208,7 @@ import torch.optim as optim
 
 
 criterion = nn.SmoothL1Loss()
-optimizer = optim.SGD(net.parameters(), lr=0.0001, momentum=0.9, weight_decay=0.0001)
+optimizer = optim.SGD(net.parameters(), lr=0.01, momentum=0.9, weight_decay=0.0005)
 #optimizer = optim.Adam(net.parameters(), lr=0.01, weight_decay=0.0005)
 
 
@@ -216,28 +224,31 @@ def lr_scheduler(optimizer, epoch=None, lr_decay=0.001, step=1):
 import os
 
 
-def evaluate(network, dataset, batch_size=8):
-    cum_loss = 0
-    cum_absolute_error = 0
-    count = 0
+def predict(network, dataset, batch_size=8):
     network.eval()
     loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size)
+    predictions = None
     for data in loader:
-        images, targets = data
-        targets = Variable(targets)
+        images, _ = data
         if HAS_CUDA:
-            images, targets = images.cuda(gpu_id), targets.cuda(gpu_id)
+            images = images.cuda(gpu_id)
         outputs = network(Variable(images))
-        cum_loss += criterion(outputs, targets).data[0]
-        cum_absolute_error += torch.sum(torch.abs(outputs.data - targets.data))
-        count += 1
+        outputs = outputs.data.cpu() # free gpu memory
+        if predictions is None:
+            predictions = outputs
+        else:
+            predictions = torch.cat((predictions, outputs))
+    return predictions
 
-    loss, mean_absolute_error = (cum_loss / count), (cum_absolute_error / count)
 
-    return loss, mean_absolute_error
+def evaluate(predictions, ground_truth_values):
+    loss = criterion(Variable(predictions, requires_grad=False), Variable(ground_truth_values, requires_grad=False))
+    residuals = predictions - ground_truth_values
+    abs_error = torch.abs(residuals)
+    return loss.data[0], torch.mean(abs_error)
 
 
-model_name = 'trained_model.pth'
+model_name = 'model.ckpt'
 if os.path.exists(model_name):
 
     print('Found pretrained model. Loading file', model_name)
@@ -245,6 +256,7 @@ if os.path.exists(model_name):
 
 else:
 
+    best_train_loss = float('Inf')
     best_test_loss = float('Inf')
     best_epoch_id = 0
     valid_training = True
@@ -295,6 +307,7 @@ else:
             # convert the input tensor to a Variable (autograd wrapper with gradient
             # utilities)
             outputs = net(Variable(inputs))
+
             # compute the loss according to the desired criterion
             loss = criterion(outputs, Variable(targets))
 
@@ -311,7 +324,7 @@ else:
             # print progress
             running_loss += loss.data[0]
             if i % step == (step - 1):
-                print('[%2d/%2d, %2d/%2d] loss: %.3f' % (epoch + 1, nb_epochs, i + 1, max_steps, running_loss / step))
+                print('[%3d/%3d, %3d/%3d] loss: %.3f' % (epoch + 1, nb_epochs, i + 1, max_steps, running_loss / step))
                 running_loss = 0.0
 
         # if we do not need to stop the training, compute the evaluation of the model
@@ -319,15 +332,19 @@ else:
         if valid_training:
             # Testing.
             print('Evaluating...')
-            train_loss, train_mae = evaluate(net, train_set)
-            test_loss, test_mae = evaluate(net, test_set)
+            train_predictions = predict(net, train_set)
+            train_loss, train_mae = evaluate(train_predictions, torch.FloatTensor(train_set.train_values))
+            test_predictions = predict(net, test_set)
+            test_loss, test_mae = evaluate(test_predictions, torch.FloatTensor(test_set.test_values))
             print('Loss =>\tTrain: %.3f\tTest: %.3f' % (train_loss, test_loss))
-            print('MAE ==>\tTrain: %.1f\tTest: %.1f' % (train_mae, test_mae))
+            print('MAE ==>\tTrain: %.2f\tTest: %.2f' % (train_mae, test_mae))
             loss_history = [[train_loss, test_loss]] if loss_history is None else loss_history + [[train_loss, test_loss]]
 
-            if test_loss < best_test_loss:
+            # check if the network is still learning
+            if test_loss < best_test_loss and train_loss < best_train_loss:
                 print('Saving checkpoint at epoch', epoch)
-                torch.save(net.state_dict(), 'checkpoint.pth')
+                torch.save(net.state_dict(), 'checkpoint.ckpt')
+                best_train_loss = train_loss
                 best_test_loss = test_loss
                 best_epoch_id = epoch
                 epochs_without_improvement = 0
@@ -336,8 +353,10 @@ else:
 
             # note that even if we prefer to stop the training, it is considered valid
             if epochs_without_improvement >= max_epochs_without_improvement:
-                print('EARLY STOP because the network does not learn anymore')
-                break
+                optimizer = lr_scheduler(optimizer, lr_decay=0.5)
+                epochs_without_improvement = 0
+                #print('EARLY STOP because the network does not learn anymore')
+                #break
 
     print('Finished training')
 
@@ -368,3 +387,9 @@ print('Evaluating testing set...')
 test_loss, test_mae = evaluate(net, test_set)
 print('Loss:', test_loss)
 print('Mean Absolute Error:', test_mae)
+
+preds = predict(network, test_set)
+#errors = preds.data - test_set.test_values
+
+info = 'info, test_loss, test_mae, preds, test_values'
+torch.save((info, test_loss, test_mae, preds, test_set.test_values), 'results.pth')
