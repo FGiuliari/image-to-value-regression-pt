@@ -30,7 +30,7 @@ if HAS_CUDA:
 task = 'fat-from-depth' # age-from-faces, gender-from-depth, fat-from-depth
 
 nb_epochs = 60 # max number of training epochs
-batch_size = 24 # <== reduce this value if you encounter memory errors
+batch_size = 1 # <== reduce this value if you encounter memory errors
 shuffle_train_set = True
 use_batch_norm = True
 use_dropout = False
@@ -143,7 +143,8 @@ class Net(nn.Module):
         self.fc1 = nn.Linear(self.nfts, 512)
         self.fc2 = nn.Linear(512, 256)
         self.fc3 = nn.Linear(256, 128)
-        self.fc4 = nn.Linear(128, 1)
+        self.fc4 = nn.Linear(128, 128)
+        self.fc5 = nn.Linear(128, 1)
     
     def _features(self, x):
         if self.use_base_model:
@@ -167,7 +168,10 @@ class Net(nn.Module):
         x = F.relu(self.fc3(x))
         if self.use_dropout:
             x = F.dropout(x)
-        x = self.fc4(x)
+        x = F.relu(self.fc4(x))
+        if self.use_dropout:
+            x = F.dropout(x)
+        x = self.fc5(x)
         return x
     
     # compute at runtime the forward pass
@@ -210,8 +214,8 @@ import torch.optim as optim
 
 
 criterion = nn.SmoothL1Loss()
-optimizer = optim.SGD(net.parameters(), lr=0.01, momentum=0.9, weight_decay=0.0005)
-#optimizer = optim.Adam(net.parameters(), lr=0.01, weight_decay=0.0005)
+#optimizer = optim.SGD(net.parameters(), lr=0.01, momentum=0.9, weight_decay=0.0005)
+optimizer = optim.Adam(net.parameters(), lr=0.01, weight_decay=0.0005)
 
 
 def lr_scheduler(optimizer, epoch=None, lr_decay=0.001, step=1):
@@ -275,7 +279,7 @@ else:
             break
 
         # at each epoch, update the optimizer learning rate
-        optimizer = lr_scheduler(optimizer, lr_decay=0.25)
+        #optimizer = lr_scheduler(optimizer, lr_decay=0.25)
 
         # enable training mode (the function eval() freezes the weight gradients)
         net.train()
