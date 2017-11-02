@@ -1,4 +1,5 @@
-#%% Imports.
+#%% ---------------------------------------------------------------------------
+# Imports.
 
 
 from __future__ import print_function
@@ -8,15 +9,32 @@ import torchvision.transforms as transforms
 import dataset
 
 
-#%% Load dataset.
+HAS_CUDA = True
+if not torch.cuda.is_available():
+    print('CUDA not available, using CPU')
+    HAS_CUDA = False
+
+seed = 23092017
+torch.manual_seed(seed)
+if HAS_CUDA:
+    torch.cuda.manual_seed(seed)
+
+if HAS_CUDA:
+    gpu_id = 0
+
+
+#%% ---------------------------------------------------------------------------
+# Load dataset.
 
 
 nb_epochs = 100
-batch_size = 48
+batch_size = 32
 shuffle_train_set = True
 use_batch_norm = True
 use_dropout = False
 use_vgg16_basemodel = False
+
+nb_channels = 3 if use_vgg16_basemodel else 1
 
 
 # i dati sono già normalizzati tra 0 e 1, quindi rimuovo 0.5 per centrare in 0 l'intero dataset
@@ -24,26 +42,31 @@ use_vgg16_basemodel = False
 transf = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
 
 # scarico il dataset e lo trasformo in fase di caricamento
-train_set = dataset.FACES(train=True, transform=transf)
+#train_set = dataset.FACES(train=True, transform=transf)
+train_set = dataset.FATSYNTH('HeadLegArmLess', nb_channels, train=True, transform=transf)
 # il dataset è salvato come una struttura su cui iterare, quindi creo un oggetto capace di leggerlo
 # in maniera iterativa, impostando il numero di thread da lanciare per questo compito
 train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, shuffle=shuffle_train_set, num_workers=0)
 
 # come per il training set, ma carico il testing set
-test_set = dataset.FACES(train=False, transform=transf)
+#test_set = dataset.FACES(train=False, transform=transf)
+test_set = dataset.FATSYNTH('HeadLegArmLess', nb_channels, train=False, transform=transf)
 test_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=0)
 
 
-#%% Show some samples.
+#%% ---------------------------------------------------------------------------
+# Show some samples.
 
 
 import matplotlib.pyplot as plt
 import numpy as np
 
+
 def imshow(img):
     img = img / 2 + 0.5 # unnomalize (riporto tra 0 e 1)
     npimg = img.numpy()
     plt.imshow(np.transpose(npimg, (1, 2, 0)))
+
 
 # estrai e visualizza alcune immagini campione
 dataiter = iter(train_loader) # il primo oggetto è l'iteratore vero e proprio
@@ -51,17 +74,27 @@ images, targets = dataiter.next()
 
 plt.figure()
 imshow(torchvision.utils.make_grid(images))
-print(' '.join('%.1f' % targets[j] for j in range(batch_size)))
+print(' '.join('%.3f' % targets[j] for j in range(batch_size)))
 
-Y = train_set.train_values
-print(Y.shape, np.mean(Y), np.var(Y))
-plt.figure()
-plt.title('Age distribution')
-plt.hist(Y, bins='auto')
+
+def show_stats(x, title):
+    plt.figure()
+    plt.title(title)
+    plt.hist(x, bins='auto')
+    print(title)
+    print('> shape:', x.shape)
+    print('> [mean, var]:', np.mean(x), np.var(x))
+    print('> [min, max]:', np.min(x), np.max(x))
+
+
+show_stats(train_set.train_values, 'TRAIN value distribution')
+show_stats(test_set.test_values, 'TEST value distribution')
+
 plt.show()
 
 
-#%% Setup network.
+#%% ---------------------------------------------------------------------------
+# Setup network.
 
 
 from torch.autograd import Variable
@@ -92,10 +125,10 @@ class Net(nn.Module):
                 self.base_model.requires_grad = True
         else:
             self.pool = nn.MaxPool2d(2, 2) # handle per il pooling
-            self.conv1 = nn.Conv2d(input_shape[0], 128, 5)
-            self.conv1_bn = nn.BatchNorm2d(128)
-            self.conv2 = nn.Conv2d(128, 256, 3)
-            self.conv2_bn = nn.BatchNorm2d(256)
+            self.conv1 = nn.Conv2d(input_shape[0], 32, 5)
+            self.conv1_bn = nn.BatchNorm2d(32)
+            self.conv2 = nn.Conv2d(32, 64, 3)
+            self.conv2_bn = nn.BatchNorm2d(64)
 
         # calcolo una volta il risultato del forward pass relativo
         # alle sole features della rete, così da stimare il numero
@@ -103,8 +136,8 @@ class Net(nn.Module):
         x = self._features(Variable(torch.zeros(1, *input_shape)))
         self.nfts = x.numel()
         
-        self.fc1 = nn.Linear(self.nfts, 512)
-        self.fc2 = nn.Linear(512, 256)
+        self.fc1 = nn.Linear(self.nfts, 1024)
+        self.fc2 = nn.Linear(1024, 256)
         self.fc3 = nn.Linear(256, 128)
         self.fc4 = nn.Linear(128, 1)
     
@@ -156,20 +189,63 @@ def weights_init(module):
         module.bias.data.fill_(0.0)
 
 
-target_shape = (3, 181, 121)
+target_shape = (nb_channels,) + (224, 224)
 net = Net(input_shape=target_shape, vgg16_basemodel=use_vgg16_basemodel, batch_normalization=use_batch_norm, dropout=use_dropout)
 net.apply(weights_init) # applica per ogni modulo la funzione passata come parametro
 print(net)
 
 
-#%% Training.
+if HAS_CUDA:
+    # tutti i tensori della rete sono convertiti automaticamente
+    # in tensori cuda, adatti al calcolo su GPU
+    net.cuda(gpu_id)
+
+
+#%% ---------------------------------------------------------------------------
+# Training.
 
 
 import torch.optim as optim
 
+
+class BiweightLoss(nn.Module):
+    """Biweight loss function.
+     Based on: https://arxiv.org/abs/1505.06606
+     """
+    def __init__(self, C=4.6851):
+        super(BiweightLoss, self).__init__()
+        self.C = C if C is float else None
+
+    def forward(self, input, target):
+        # compute the absolute residuals
+        r = torch.abs(input - target)
+
+        def median(x):
+            x, _ = x.sort()
+            mad_id = x.size() // 2
+            return x[mad_id]
+
+        # if C is not fixed, compute it as MAD of residuals
+        if self.C is None:
+            mad = median(torch.abs(r - median(r)))
+            self.C = mad # residual mad
+        
+        # useful function to assign the right value to a tensor
+        # according to a specified condition "cond"
+        def where(cond, x1, x2):
+            return (cond.float() * x1) + ((1 - cond.float()) * x2)
+
+        residuals = where(r < 1,
+            0.5 * torch.pow(r, 2),
+            self.C * (r - 0.5 * self.C))
+
+        loss = torch.mean(residuals)
+        return loss
+
+
 criterion = nn.SmoothL1Loss()
 optimizer = optim.SGD(net.parameters(), lr=0.01, momentum=0.9, weight_decay=0.0005)
-#optimizer = optim.Adam(net.parameters(), lr=0.001, weight_decay=0.001)
+#optimizer = optim.Adam(net.parameters(), lr=0.01, weight_decay=0.0005)
 
 
 def lr_scheduler(optimizer, epoch=None, lr_decay=0.001, step=1):
@@ -181,21 +257,10 @@ def lr_scheduler(optimizer, epoch=None, lr_decay=0.001, step=1):
     return optimizer
 
 
-HAS_CUDA = True
-if not torch.cuda.is_available():
-    print('CUDA not available, using CPU')
-    HAS_CUDA = False
-
-if HAS_CUDA:
-    # tutti i tensori della rete sono convertiti automaticamente
-    # in tensori cuda, adatti al calcolo su GPU
-    net.cuda()
-
-
 import os
 
 
-def evaluate(network, dataset, batch_size=1):
+def evaluate(network, dataset, batch_size=8):
     cum_loss = 0
     cum_absolute_error = 0
     count = 0
@@ -205,7 +270,7 @@ def evaluate(network, dataset, batch_size=1):
         images, targets = data
         targets = Variable(targets)
         if HAS_CUDA:
-            images, targets = images.cuda(), targets.cuda()
+            images, targets = images.cuda(gpu_id), targets.cuda(gpu_id)
         outputs = network(Variable(images))
         cum_loss += criterion(outputs, targets).data[0]
         cum_absolute_error += torch.sum(torch.abs(outputs.data - targets.data))
@@ -219,6 +284,7 @@ def evaluate(network, dataset, batch_size=1):
 model_name = 'trained_model.pth'
 if os.path.exists(model_name):
 
+    print('Found pretrained model. Loading file', model_name)
     net.load_state_dict(torch.load(model_name))
 
 else:
@@ -226,75 +292,121 @@ else:
     best_test_loss = float('Inf')
     best_epoch_id = 0
     valid_training = True
+    loss_history = None
 
+    epochs_without_improvement = 0
+    max_epochs_without_improvement = 5
+
+    # training loop
     for epoch in range(nb_epochs):
 
+        # early stop check
         if not valid_training:
             break
 
+        # at each epoch, update the optimizer learning rate
         optimizer = lr_scheduler(optimizer, lr_decay=0.25)
 
-        net.train() # abilita il training del modello; eval() congela il training
+        # enable training mode (the function eval() freezes the weight gradients)
+        net.train()
 
+        # variables used to print the training progress
         running_loss = 0.0
         max_steps = len(train_loader)
         step = int(max_steps / 5)
-        for i, data in enumerate(train_loader, 0):
+
+        # batch loop
+        for i, data in enumerate(train_loader):
             inputs, targets = data
             
+            # for each batch, update the learning rate
             optimizer = lr_scheduler(optimizer, lr_decay=0.001)
 
+            # since the network is sent to the GPU, also the input tensors
+            # must be sent to the graphics card
             if HAS_CUDA:
-            # siccome la rete è inviata alla GPU, tutti i tensori che
-            # utilizzerà dovranno a loro volta essere inviati alla scheda video
-                inputs, targets = inputs.cuda(), targets.cuda()
+                inputs, targets = inputs.cuda(gpu_id), targets.cuda(gpu_id)
 
-            # il gradiente viene accumulato come comportamento di default, quindi
-            # è necessario resettarlo ad ogni iterazione in modo che ogni batch di
-            # campioni sia calcolata indipendentemente
+            # gradients are accumulated by default, so we need to reset them at each
+            # iteration, so that each batch gradient is computed indepentently
             optimizer.zero_grad()
 
-            # calcolo il forward pass della rete (output) convertendo l'input
-            # in Variable, un tensore adatto al calcolo del gradiente
+            # convert the input tensor to a Variable (autograd wrapper with gradient
+            # utilities)
             outputs = net(Variable(inputs))
-            # calcolo la loss sulla base dell'output e del ground truth
+            # compute the loss according to the desired criterion
             loss = criterion(outputs, Variable(targets))
 
             if loss.data[0] == float('Inf') or loss.data[0] is float('NaN'):
-                print('Early stop due to invalid loss value')
+                print('EARLY STOP because of invalid loss value')
                 valid_training = False
                 break
 
-            # propago l'errore nella rete, aggiornando i GRADIENTI della rete
+            # update the GRADIENTS
             loss.backward()
-            # aggiorno i PESI della rete sulla base dei gradienti
+            # update the WEIGHTS
             optimizer.step()
 
-            # stampo lo stato di avanzamento, calcolando la loss media
-            # su un certo numero di iterazioni
+            # print progress
             running_loss += loss.data[0]
             if i % step == (step - 1):
                 print('[%2d/%2d, %4d/%4d] loss: %.3f' % (epoch + 1, nb_epochs, i + 1, max_steps, running_loss / step))
                 running_loss = 0.0
 
+        # if we do not need to stop the training, compute the evaluation of the model
+        # and save the history of the loss (both for training and testing)
         if valid_training:
             # Testing.
             print('Evaluating...')
-            train_loss, train_mae = evaluate(net, train_set, 48)
-            test_loss, test_mae = evaluate(net, test_set, 48)
+            train_loss, train_mae = evaluate(net, train_set)
+            test_loss, test_mae = evaluate(net, test_set)
             print('Loss =>\tTrain: %.3f\tTest: %.3f' % (train_loss, test_loss))
-            #print('MAE ==>\tTrain: %.1f\tTest: %.1f' % (train_mae, test_mae))
+            print('MAE ==>\tTrain: %.1f\tTest: %.1f' % (train_mae, test_mae))
+            loss_history = [[train_loss, test_loss]] if loss_history is None else loss_history + [[train_loss, test_loss]]
 
             if test_loss < best_test_loss:
                 print('Saving checkpoint at epoch', epoch)
                 torch.save(net.state_dict(), 'checkpoint.pth')
                 best_test_loss = test_loss
                 best_epoch_id = epoch
+                epochs_without_improvement = 0
+            else:
+                epochs_without_improvement += 1
+
+            # note that even if we prefer to stop the training, it is considered valid
+            if epochs_without_improvement >= max_epochs_without_improvement:
+                print('EARLY STOP because the network does not learn anymore')
+                break
+
+    print('Finished training')
 
     if valid_training:
-        print('Finished training')
         print('Saving final model...')
         torch.save(net.state_dict(), model_name)
         print('Best trained model at epoch', best_epoch_id, 'with test loss', best_test_loss)
 
-print('DONE')
+        import matplotlib.pyplot as plt
+        import numpy as np
+
+        xx = np.linspace(0, len(loss_history) - 1, len(loss_history))
+        loss_history = np.array(loss_history).astype(np.float32)
+
+        plt.figure()
+        plt.grid(True)
+        plt.plot(xx, loss_history[:, 0], color='b', label='train')
+        plt.plot(xx, loss_history[:, 1], color='r', label='test')
+        plt.legend()
+        plt.title('Training results')
+        plt.xlabel('Epochs')
+        plt.ylabel('Loss')
+        plt.show()
+
+
+#%% ---------------------------------------------------------------------------
+# Testing.
+
+
+print('Evaluating testing set...')
+test_loss, test_mae = evaluate(net, test_set)
+print('Loss:', test_loss)
+print('Mean Absolute Error:', test_mae)
