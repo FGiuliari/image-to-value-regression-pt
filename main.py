@@ -68,6 +68,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
+'''
 def imshow(img):
     img = img / 2 + 0.5 # unnomalize
     plt.imshow(np.transpose(img.numpy(), (1, 2, 0))) # channel last
@@ -96,6 +97,7 @@ show_stats(train_set.train_values, 'TRAIN value distribution')
 show_stats(test_set.test_values, 'TEST value distribution')
 
 plt.show()
+'''
 
 
 #%% ---------------------------------------------------------------------------
@@ -383,13 +385,34 @@ else:
 # Testing.
 
 
-print('Evaluating testing set...')
-test_loss, test_mae = evaluate(net, test_set)
-print('Loss:', test_loss)
-print('Mean Absolute Error:', test_mae)
+results_filename = 'results.pth'
+if not os.path.exists(results_filename):
 
-preds = predict(network, test_set)
-#errors = preds.data - test_set.test_values
+    print('Evaluating testing set...')
+    test_predictions = predict(net, test_set)
+    ground_truth_values = torch.FloatTensor(test_set.test_values)
+    test_loss, test_mae = evaluate(test_predictions, ground_truth_values)
+    print('Loss:', test_loss)
+    print('Mean Absolute Error:', test_mae)
 
-info = 'info, test_loss, test_mae, preds, test_values'
-torch.save((info, test_loss, test_mae, preds, test_set.test_values), 'results.pth')
+    info = 'info, test_loss, test_mae, preds, gt_values'
+    torch.save((info, test_loss, test_mae, test_predictions, ground_truth_values), 'results.pth')
+
+else:
+
+    data = torch.load(results_filename)
+    info, test_loss, test_mae, test_predictions, ground_truth_values = data
+
+print(info)
+
+plt.figure()
+xx = np.linspace(1, test_predictions.numel(), test_predictions.numel())
+gt = ground_truth_values.numpy()
+yy = test_predictions.numpy()
+idx = np.argsort(gt)
+gt = gt[idx]
+yy = yy[idx]
+plt.plot(xx, gt, color='g', label='gt')
+plt.plot(xx, yy, color='b', label='yy')
+plt.legend()
+plt.show()
