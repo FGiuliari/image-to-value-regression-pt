@@ -7,6 +7,9 @@ from PIL import Image
 import numpy as np
 
 
+#%% ---------------------------------------------------------------------------
+
+
 class FACES(torch.utils.data.Dataset):
     '''Faces Dataset.
 
@@ -65,3 +68,77 @@ class FACES(torch.utils.data.Dataset):
         else:
             return len(self.test_data)
 
+
+#%% ---------------------------------------------------------------------------
+
+
+class FATSYNTH(torch.utils.data.Dataset):
+    '''Synthetic fat Dataset.
+
+    Args:
+        train (bool, optional): If True, creates dataset from training set, otherwise
+            creates from test set.
+        transform (callable, optional): A function/transform that takes in an PIL image
+            and returns a transformed version.
+    
+    '''
+
+    def __init__(self, name, nb_channels, train=True, transform=None):
+
+        assert name in ['Full', 'HeadLess', 'HeadLegLess', 'HeadLegArmLess']
+        matfile = name + '_ch' + str(nb_channels) + '_synth.mat'
+
+        self.nb_channels = nb_channels
+        self.matfile = '/media/Data/datasets/FatNet/synthdata/bin_data/' + matfile
+        self.transform = transform
+        self.train = train  # training set or test set
+
+        data = sio.loadmat(self.matfile)
+
+        if self.train:
+            self.train_data = np.squeeze(data['train_images'])
+            self.train_values = np.squeeze(data['train_values'])
+        else:
+            self.test_data = np.squeeze(data['test_images'])
+            self.test_values = np.squeeze(data['test_values'])
+
+    def __getitem__(self, index):
+        '''
+        Args:
+            index (int): Index.
+
+        Returns:
+            tuple: (image, target).
+        '''
+        if self.train:
+            image, target = self.train_data[index], self.train_values[index]
+        else:
+            image, target = self.test_data[index], self.test_values[index]
+
+        # doing this so that it is consistent with all other datasets
+        # to return a PIL Image
+        image = np.swapaxes(image, 0, 1)
+        image = Image.fromarray(image)
+
+        if self.transform is not None:
+            image = self.transform(image)
+
+        '''
+        # add random noise
+        noise_scale = 0.5
+        image += 2 * (torch.rand(image.size()) - 0.5) * (1 - noise_scale)
+
+        def where(cond, x1, x2):
+            return (cond.float() * x1) + ((1 - cond.float()) * x2)
+
+        image = where(image < -1, -torch.ones(image.size()), image)
+        image = where(image > 1, torch.ones(image.size()), image)
+        '''
+
+        return image, target
+    
+    def __len__(self):
+        if self.train:
+            return len(self.train_data)
+        else:
+            return len(self.test_data)
