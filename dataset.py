@@ -54,7 +54,9 @@ class FACES(torch.utils.data.Dataset):
 
         # doing this so that it is consistent with all other datasets
         # to return a PIL Image
-        image = np.swapaxes(image, 0, 1) # return to PIL format W*H
+        print('image.shape', image.shape)
+        # image has shape HWC
+        image = np.transpose(image, (1, 0, 2)) # to WHC
         image = Image.fromarray(image)
 
         if self.transform is not None:
@@ -116,7 +118,9 @@ class FATSYNTH(torch.utils.data.Dataset):
             image, target = self.train_data[index], self.train_values[index]
         else:
             image, target = self.test_data[index], self.test_values[index]
-            
+
+        # image has shape HWC
+        image = np.transpose(image, (1, 0, 2)) # to WHC   
         image = Image.fromarray(image)
 
         if self.transform is not None:
@@ -197,6 +201,8 @@ class FATDATA(torch.utils.data.Dataset):
         else:
             image, target, label = self.test_data[index], self.test_values[index], self.test_labels[index]
 
+        # image is in the format CWH
+        image = np.transpose(image, (1, 2, 0)) # to WHC
         image = Image.fromarray(image)
 
         if self.transform is not None:
