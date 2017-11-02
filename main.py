@@ -23,30 +23,43 @@ if HAS_CUDA:
     gpu_id = 0
 
 
-#%% ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
 # Load dataset.
 
 
-nb_epochs = 100
-batch_size = 32
+task = 'fat-from-depth'
+
+nb_epochs = 100 # max number of training epochs
+batch_size = 1 # <== reduce this value if you encounter memory errors
 shuffle_train_set = True
 use_batch_norm = True
 use_dropout = False
-use_vgg16_basemodel = False
+use_vgg16_basemodel = True
+use_data_augmentation_hflip = True
 
-nb_channels = 3 if use_vgg16_basemodel else 1
+nb_channels = 3 if use_vgg16_basemodel else 1 # vgg16 requires RGB images
+target_shape = (nb_channels,) + (224, 224) if use_vgg16_basemodel else (180, 120)
 
 # the images are normalized between 0 and 1 (thanks to the ToTensor transformation) and then normalized between -1 and +1.
 transf = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,) * nb_channels, (0.5,) * nb_channels)])
 
-train_set = dataset.FATSYNTH('HeadLegArmLess', nb_channels, train=True, transform=transf)
-train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, shuffle=shuffle_train_set, num_workers=0)
+if task == 'age-from-faces':
+    train_set = dataset.FACES(True, transf)
+    test_set = dataset.FACES(False, transf)
 
-test_set = dataset.FATSYNTH('HeadLegArmLess', nb_channels, train=False, transform=transf)
+if task == 'gender-from-depth':
+    train_set = dataset.FATSYNTH('HeadLegArmLess', nb_channels, train=True, transform=transf)
+    test_set = dataset.FATSYNTH('HeadLegArmLess', nb_channels, train=False, transform=transf)
+
+if task == 'fat-from-depth':
+    train_set = dataset.FATDATA('HeadLegArmLess', nb_channels, train=True, transform=transf)
+    test_set = dataset.FATDATA('HeadLegArmLess', nb_channels, train=False, transform=transf)
+
+train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, shuffle=shuffle_train_set, num_workers=0)
 test_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=0)
 
 
-#%% ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
 # Show some samples.
 
 
@@ -54,15 +67,15 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
+
 def imshow(img):
-    img = img / 2 + 0.5 # unnomalize (riporto tra 0 e 1)
-    npimg = img.numpy()
-    plt.imshow(np.transpose(npimg, (1, 2, 0)))
+    img = img / 2 + 0.5 # unnomalize
+    plt.imshow(np.transpose(img.numpy(), (1, 2, 0))) # channel last
 
 
-# estrai e visualizza alcune immagini campione
-dataiter = iter(train_loader) # il primo oggetto è l'iteratore vero e proprio
-images, targets = dataiter.next()
+# extract some sample images
+dataiter = iter(train_loader) # first item is the iterator
+images, targets = dataiter.next() # extract batch
 
 plt.figure()
 imshow(torchvision.utils.make_grid(images))
@@ -79,8 +92,8 @@ def show_stats(x, title):
     print('> [min, max]:', np.min(x), np.max(x))
 
 
-show_stats(train_set.train_values, 'TRAIN value distribution')
-show_stats(test_set.test_values, 'TEST value distribution')
+#show_stats(train_set.train_values, 'TRAIN value distribution')
+#show_stats(test_set.test_values, 'TEST value distribution')
 
 plt.show()
 
@@ -125,10 +138,8 @@ class Net(nn.Module):
         x = self._features(Variable(torch.zeros(1, *input_shape)))
         self.nfts = x.numel()
         
-        self.fc1 = nn.Linear(self.nfts, 1024)
-        self.fc2 = nn.Linear(1024, 256)
-        self.fc3 = nn.Linear(256, 128)
-        self.fc4 = nn.Linear(128, 1)
+        self.fc1 = nn.Linear(self.nfts, 512)
+        self.fc2 = nn.Linear(512, 1)
     
     def _features(self, x):
         if self.use_base_model:
@@ -146,13 +157,7 @@ class Net(nn.Module):
         x = F.relu(self.fc1(x))
         if self.use_dropout:
             x = F.dropout(x)
-        x = F.relu(self.fc2(x))
-        if self.use_dropout:
-            x = F.dropout(x)
-        x = F.relu(self.fc3(x))
-        if self.use_dropout:
-            x = F.dropout(x)
-        x = self.fc4(x)
+        x = self.fc2(x)
         return x
     
     # compute at runtime the forward pass
@@ -177,7 +182,6 @@ def weights_init(module):
         module.bias.data.fill_(0.0)
 
 
-target_shape = (nb_channels,) + (224, 224)
 net = Net(input_shape=target_shape, vgg16_basemodel=use_vgg16_basemodel, batch_normalization=use_batch_norm, dropout=use_dropout)
 net.apply(weights_init) # applica per ogni modulo la funzione passata come parametro
 print(net)
@@ -195,43 +199,8 @@ if HAS_CUDA:
 import torch.optim as optim
 
 
-class BiweightLoss(nn.Module):
-    """Biweight loss function.
-     Based on: https://arxiv.org/abs/1505.06606
-     """
-    def __init__(self, C=4.6851):
-        super(BiweightLoss, self).__init__()
-        self.C = C if C is float else None
-
-    def forward(self, input, target):
-        # compute the absolute residuals
-        r = torch.abs(input - target)
-
-        def median(x):
-            x, _ = x.sort()
-            mad_id = x.size() // 2
-            return x[mad_id]
-
-        # if C is not fixed, compute it as MAD of residuals
-        if self.C is None:
-            mad = median(torch.abs(r - median(r)))
-            self.C = mad # residual mad
-        
-        # useful function to assign the right value to a tensor
-        # according to a specified condition "cond"
-        def where(cond, x1, x2):
-            return (cond.float() * x1) + ((1 - cond.float()) * x2)
-
-        residuals = where(r < 1,
-            0.5 * torch.pow(r, 2),
-            self.C * (r - 0.5 * self.C))
-
-        loss = torch.mean(residuals)
-        return loss
-
-
 criterion = nn.SmoothL1Loss()
-optimizer = optim.SGD(net.parameters(), lr=0.01, momentum=0.9, weight_decay=0.0005)
+optimizer = optim.SGD(net.parameters(), lr=0.0001, momentum=0.9, weight_decay=0.0001)
 #optimizer = optim.Adam(net.parameters(), lr=0.01, weight_decay=0.0005)
 
 
@@ -252,7 +221,7 @@ def evaluate(network, dataset, batch_size=8):
     cum_absolute_error = 0
     count = 0
     network.eval()
-    loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+    loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size)
     for data in loader:
         images, targets = data
         targets = Variable(targets)
@@ -306,8 +275,13 @@ else:
         for i, data in enumerate(train_loader):
             inputs, targets = data
             
+            if use_data_augmentation_hflip:
+                hflip = torch.from_numpy(inputs.numpy()[:,:,:,::-1].copy())
+                inputs = torch.cat((inputs, hflip))
+                targets = torch.cat((targets, targets))
+            
             # for each batch, update the learning rate
-            optimizer = lr_scheduler(optimizer, lr_decay=0.001)
+            optimizer = lr_scheduler(optimizer, lr_decay=0.0005)
 
             # since the network is sent to the GPU, also the input tensors
             # must be sent to the graphics card
@@ -337,7 +311,7 @@ else:
             # print progress
             running_loss += loss.data[0]
             if i % step == (step - 1):
-                print('[%2d/%2d, %4d/%4d] loss: %.3f' % (epoch + 1, nb_epochs, i + 1, max_steps, running_loss / step))
+                print('[%2d/%2d, %2d/%2d] loss: %.3f' % (epoch + 1, nb_epochs, i + 1, max_steps, running_loss / step))
                 running_loss = 0.0
 
         # if we do not need to stop the training, compute the evaluation of the model
@@ -371,10 +345,7 @@ else:
         print('Saving final model...')
         torch.save(net.state_dict(), model_name)
         print('Best trained model at epoch', best_epoch_id, 'with test loss', best_test_loss)
-
-        import matplotlib.pyplot as plt
-        import numpy as np
-
+        
         xx = np.linspace(0, len(loss_history) - 1, len(loss_history))
         loss_history = np.array(loss_history).astype(np.float32)
 
