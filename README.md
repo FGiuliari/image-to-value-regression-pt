@@ -1,5 +1,11 @@
-# age_prediction_from_faces
+# Image to Value Regressor using Deep Learning
 
-## Download dataset
+## Download datasets
 
-[WIKI_CROP_ALIGNED](https://univr-my.sharepoint.com/personal/marco_carletti_staff_univr_eu/_layouts/15/guestaccess.aspx?docid=09c55f94d80d64862921a4f9e50039a87&authkey=AbY8edF3Iy9UI3eKkr8PifI&expiration=2017-11-29T08%3A27%3A31.000Z&e=40a4ca7c9f994cce8559637d6a304bff)
+### Depth
+[FATDATA]() - TBD
+[SYNTH_GENDER]() - Synthetic dataset generated with [MakeHuman](http://www.makehuman.org/) and [Blender](https://www.blender.org/). The regression value is the _gender_ factor of MakeHuman (between 0.0 and 1.0). All the images are aligned, cropped in 4 different ways: full-body, head-less, head-leg-less, head-leg-arm-less. Each graylevel represents 3 mm of depth precision.
+
+### RGB
+[WIKI_CROP_ALIGNED]() - WIKI dataset from [IMDB-WIKI](https://data.vision.ee.ethz.ch/cvl/rrothe/imdb-wiki/) face dataset aligned with [Face Frontalization](https://github.com/dougsouza/face-frontalization). All the images are cropped to the size of the face-mask.
+
