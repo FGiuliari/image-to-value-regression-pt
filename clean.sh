@@ -3,7 +3,7 @@
 echo 'Removing python cache, checkpoint files and results...'
 
 rm -rf __pycache__
-rm *.ckpt
-rm *.pth
+rm -f *.ckpt
+rm -f *.pth
 
 echo 'DONE'
