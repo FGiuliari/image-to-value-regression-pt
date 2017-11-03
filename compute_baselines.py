@@ -31,7 +31,7 @@ else:
     torch.cuda.manual_seed(seed)
     gpu_id = 0
     
-task = 'gender-from-depth' # age-from-faces, gender-from-depth, fat-from-depth
+task = 'age-from-faces' # age-from-faces, gender-from-depth, fat-from-depth
 dsname = 'HeadLegArmLess' # Full, HeadLess, HeadLegLess, HeadLegArmLess
 features_to_extract = 'pca' # hog, pca, vgg16
 regressor_mode = 'svm' # svm, random_forest
@@ -108,6 +108,8 @@ else:
                 y = y.squeeze()
                 if len(x.shape) == 3:
                     x = np.transpose(x, (1, 2, 0))
+                from skimage import color
+                x = color.rgb2gray(x)
                 batch_features = torch.FloatTensor(x.reshape(1, x.size))
             
             if features_to_extract == 'vgg16':
@@ -150,9 +152,14 @@ else:
     if features_to_extract == 'pca':
         from sklearn.decomposition import IncrementalPCA
         print('Reducing feature dimension using Incremental PCA...')
-        new_feat_size = 100
+        new_feat_size = 60
         ipca = IncrementalPCA(n_components=new_feat_size, batch_size=new_feat_size)
         ipca.fit(train_set[0].numpy())
+        eigenfaces = ipca.components_.reshape((new_feat_size, 181, 121, 1))
+        plt.figure()
+        for i in range(60):
+            plt.subplot(6,10,i+1)
+            plt.imshow(np.squeeze(eigenfaces[i]))
         new_train_data = torch.FloatTensor(ipca.transform(train_set[0].numpy()))
         train_set = (new_train_data, train_set[1])
         new_test_data = torch.FloatTensor(ipca.transform(test_set[0].numpy()))
@@ -203,6 +210,7 @@ def fit_model(filename, x_train, y_train):
     return regressor
 
 
+print('Fitting model...')
 regressor = fit_model(regressor_filename, x_train, y_train)
 
 
