@@ -1,3 +1,6 @@
+#!/usr/bin/python3
+
+
 #%% ---------------------------------------------------------------------------
 # Imports.
 
@@ -32,22 +35,21 @@ if HAS_CUDA:
 if HAS_CUDA:
     gpu_id = 0
 
-# name of the saved files
-model_filename = 'network_state_dict.ckpt'
-results_filename = 'results.pth'
-
 # what are the tasks in this demo?
 task = 'fat-from-depth' # age-from-faces, gender-from-depth, fat-from-depth
-
 
 nb_epochs = 60 # max number of training epochs
 batch_size = 1 # <== reduce this value if you encounter memory errors
 shuffle_train_set = True
 use_batch_norm = True
 use_dropout = False
-use_vgg16_basemodel = False
+use_vgg16_basemodel = True
 use_data_augmentation_hflip = True # WARNING - data augmentation doubles the batch size
-use_early_stop_triggers = True
+use_early_stop_triggers = False
+
+# name of the saved files
+model_filename = 'network_state_dict.ckpt'
+results_filename = 'results.pth'
 
 
 # -------------------------------------
@@ -66,12 +68,12 @@ if task == 'age-from-faces':
     test_set = dataset.FACES(False, transf)
 
 if task == 'gender-from-depth':
-    train_set = dataset.FATSYNTH('HeadLegArmLess', nb_channels, train=True, transform=transf)
-    test_set = dataset.FATSYNTH('HeadLegArmLess', nb_channels, train=False, transform=transf)
+    train_set = dataset.FATSYNTH('HeadLegLess', nb_channels, train=True, transform=transf)
+    test_set = dataset.FATSYNTH('HeadLegLess', nb_channels, train=False, transform=transf)
 
 if task == 'fat-from-depth':
-    train_set = dataset.FATDATA('HeadLegArmLess', nb_channels, train=True, transform=transf)
-    test_set = dataset.FATDATA('HeadLegArmLess', nb_channels, train=False, transform=transf)
+    train_set = dataset.FATDATA('HeadLegLess', nb_channels, train=True, transform=transf)
+    test_set = dataset.FATDATA('HeadLegLess', nb_channels, train=False, transform=transf)
 
 train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, shuffle=shuffle_train_set, num_workers=0)
 test_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=0)
@@ -139,7 +141,8 @@ def weights_init(module):
 
 
 net = Net(input_shape=target_shape, vgg16_basemodel=use_vgg16_basemodel, batch_normalization=use_batch_norm, dropout=use_dropout)
-net.apply(weights_init) # apply to each modules/elements the input function
+#net.apply(weights_init) # apply to each modules/elements the input function
+net.enable_base_model_training(True)
 print(net)
 
 
@@ -153,7 +156,7 @@ if HAS_CUDA:
 
 
 criterion = torch.nn.SmoothL1Loss()
-optimizer = torch.optim.SGD(net.parameters(), lr=0.01, momentum=0.9, weight_decay=0.0005)
+optimizer = torch.optim.SGD(net.parameters(), lr=0.001, momentum=0.9, weight_decay=0.0005)
 
 
 def lr_scheduler(optimizer, lr_decay=0.001, epoch=None, step=1):
@@ -165,7 +168,7 @@ def lr_scheduler(optimizer, lr_decay=0.001, epoch=None, step=1):
     return optimizer
 
 
-def predict(network, dataset, batch_size=8):
+def predict(network, dataset, batch_size=1):
     network.eval()
     loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size)
     predictions = None
@@ -217,6 +220,8 @@ else:
         # early stop check
         if not valid_training:
             break
+
+        print('\nEPOCH', epoch + 1)
 
         # at each epoch, update the optimizer learning rate
         #optimizer = lr_scheduler(optimizer, lr_decay=0.25)
@@ -273,7 +278,7 @@ else:
             # print progress
             running_loss += loss.data[0]
             if i % step == (step - 1):
-                print('[%3d/%3d, %3d/%3d] loss: %.3f' % (epoch + 1, nb_epochs, i + 1, max_steps, running_loss / step))
+                print('[%3d/%3d, %4d/%4d] loss: %.3f' % (epoch + 1, nb_epochs, i + 1, max_steps, running_loss / step))
                 running_loss = 0.0
 
         # if we do not need to stop the training, compute the evaluation of the model
@@ -299,6 +304,9 @@ else:
                 best_epoch_id = epoch
                 epochs_without_improvement = 0
             else:
+                # when the network struggle to learn, try to help the training
+                # by reducing the learning rate
+                optimizer = lr_scheduler(optimizer, lr_decay=0.1)
                 epochs_without_improvement += 1
 
             # note that even if we prefer to stop the training, it is considered valid
@@ -312,25 +320,13 @@ else:
                     optimizer = lr_scheduler(optimizer, lr_decay=0.5)
                     epochs_without_improvement = 0
 
-    print('Finished training')
+    print('\nFinished training')
 
     if valid_training:
         #print('Saving final model...')
         #torch.save(net.state_dict(), model_filename)
-        print('Best trained model at epoch', best_epoch_id, 'with test loss', best_test_loss)
-        
-        xx = np.linspace(0, len(loss_history) - 1, len(loss_history))
+        print('Best trained model at [epoch %d] with test [loss %.3f]' % (best_epoch_id, best_test_loss))
         loss_history = np.array(loss_history).astype(np.float32)
-
-        plt.figure()
-        plt.grid(True)
-        plt.plot(xx, loss_history[:, 0], color='b', label='train')
-        plt.plot(xx, loss_history[:, 1], color='r', label='test')
-        plt.legend()
-        plt.title('Training results')
-        plt.xlabel('Epochs')
-        plt.ylabel('Loss')
-        plt.show()
 
 
 #%% ---------------------------------------------------------------------------
@@ -339,31 +335,50 @@ else:
 
 if not os.path.exists(results_filename):
 
-    print('Evaluating testing set...')
+    print('\nEvaluating testing set...')
     test_predictions = predict(net, test_set)
     ground_truth_values = torch.FloatTensor(test_set.test_values)
     test_loss, test_mae = evaluate(test_predictions, ground_truth_values)
-    print('Loss:', test_loss)
-    print('Mean Absolute Error:', test_mae)
 
     info = 'info, test_loss, test_mae, preds, gt_values'
-    torch.save((info, test_loss, test_mae, test_predictions, ground_truth_values), 'results.pth')
+    torch.save((info, loss_history, test_loss, test_mae, test_predictions, ground_truth_values), 'results.pth')
 
 else:
 
     data = torch.load(results_filename)
-    info, test_loss, test_mae, test_predictions, ground_truth_values = data
+    info, loss_history, test_loss, test_mae, test_predictions, ground_truth_values = data
 
-print(info)
+print('\nFinal results:')
+print('Loss: %.3f' % test_loss)
+print('MAE: %.2f' % test_mae)
 
+# show loss history
+plt.figure()
+xx = np.linspace(0, loss_history.shape[0] - 1, loss_history.shape[0])
+plt.grid(True)
+plt.plot(xx, loss_history[:, 0], color='b', label='train')
+plt.plot(xx, loss_history[:, 1], color='r', label='test')
+plt.legend()
+plt.title('Training results')
+plt.xlabel('Epochs')
+plt.ylabel('Loss')
+
+# show prediction results
 plt.figure()
 xx = np.linspace(1, test_predictions.numel(), test_predictions.numel())
-gt = ground_truth_values.numpy()
-yy = test_predictions.numpy()
+gt = ground_truth_values.squeeze().numpy()
+yy = test_predictions.squeeze().numpy()
 idx = np.argsort(gt)
 gt = gt[idx]
 yy = yy[idx]
+err = yy - gt
+plt.subplot(2,1,1)
+plt.grid(True)
 plt.plot(xx, gt, color='g', label='gt')
 plt.plot(xx, yy, color='b', label='yy')
+plt.legend()
+plt.subplot(2,1,2)
+plt.grid(True)
+plt.plot(xx, err, color='r', label='err')
 plt.legend()
 plt.show()
