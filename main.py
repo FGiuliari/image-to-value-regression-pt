@@ -3,31 +3,42 @@
 
 
 from __future__ import print_function
+
 import torch
 import torchvision
-import torchvision.transforms as transforms
+from torchvision import transforms
+
 import dataset
+import os
 
 
+#%% -------------------------- >>> MODIFY HERE <<< ----------------------------
+# Settings.
+
+
+# check cuda core
 HAS_CUDA = True
 if not torch.cuda.is_available():
     print('CUDA not available, using CPU')
     HAS_CUDA = False
 
+# set the seed for debugging purposes
 seed = 23092017
 torch.manual_seed(seed)
 if HAS_CUDA:
     torch.cuda.manual_seed(seed)
 
+# if any, prefer the first gpu
 if HAS_CUDA:
     gpu_id = 0
 
+# name of the saved files
+model_filename = 'network_state_dict.ckpt'
+results_filename = 'results.pth'
 
-# ---------------------------------------------------------------------------
-# Load dataset.
-
-
+# what are the tasks in this demo?
 task = 'fat-from-depth' # age-from-faces, gender-from-depth, fat-from-depth
+
 
 nb_epochs = 60 # max number of training epochs
 batch_size = 1 # <== reduce this value if you encounter memory errors
@@ -36,6 +47,12 @@ use_batch_norm = True
 use_dropout = False
 use_vgg16_basemodel = False
 use_data_augmentation_hflip = True # WARNING - data augmentation doubles the batch size
+use_early_stop_triggers = True
+
+
+# -------------------------------------
+# Load dataset.
+
 
 nb_channels = 3 if use_vgg16_basemodel or task == 'age-from-faces' else 1 # vgg16 requires RGB images
 target_shape = (180, 120) if task == 'age-from-faces' else (224, 224)
@@ -60,7 +77,7 @@ train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, shu
 test_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=0)
 
 
-# ---------------------------------------------------------------------------
+# -------------------------------------
 # Show some samples.
 
 
@@ -105,83 +122,8 @@ plt.show()
 
 
 from torch.autograd import Variable
-import torch.nn as nn
-import torch.nn.functional as F
-import torchvision.models as models
+from network import Net # definition of the (custom) network architecture
 
-
-# to build a network, extend the class nn.Module
-class Net(nn.Module):
-    
-    def __init__(self, input_shape, vgg16_basemodel=True, batch_normalization=False, dropout=False):
-        # define the network components but not the actual architecture
-        super(Net, self).__init__()
-
-        self.use_base_model = vgg16_basemodel
-        self.use_batch_normalization = batch_normalization
-        self.use_dropout = dropout
-        
-        if self.use_base_model:
-            if self.use_batch_normalization:
-                self.base_model = models.vgg16_bn(pretrained=True).features
-            else:
-                self.base_model = models.vgg16(pretrained=True).features
-            for param in self.base_model.parameters():
-                self.base_model.requires_grad = True
-        else:
-            self.pool = nn.MaxPool2d(2, 2)
-            self.conv1 = nn.Conv2d(input_shape[0], 32, 5)
-            self.conv1_bn = nn.BatchNorm2d(32)
-            self.conv2 = nn.Conv2d(32, 64, 3)
-            self.conv2_bn = nn.BatchNorm2d(64)
-
-        # to compute the number of vectorized features we need to compute
-        # once the forward pass on the feature_extractor
-        x = self._features(Variable(torch.zeros(1, *input_shape)))
-        self.nfts = x.numel()
-        
-        self.fc1 = nn.Linear(self.nfts, 512)
-        self.fc2 = nn.Linear(512, 256)
-        self.fc3 = nn.Linear(256, 128)
-        self.fc4 = nn.Linear(128, 128)
-        self.fc5 = nn.Linear(128, 1)
-    
-    def _features(self, x):
-        if self.use_base_model:
-            x = self.base_model(x)
-        else:
-            if self.use_batch_normalization:
-                x = self.pool(F.relu(self.conv1_bn(self.conv1(x))))
-                x = self.pool(F.relu(self.conv2_bn(self.conv2(x))))
-            else:
-                x = self.pool(F.relu(self.conv1(x)))
-                x = self.pool(F.relu(self.conv2(x)))
-        return x
-    
-    def _regressor(self, x):
-        x = F.relu(self.fc1(x))
-        if self.use_dropout:
-            x = F.dropout(x)
-        x = F.relu(self.fc2(x))
-        if self.use_dropout:
-            x = F.dropout(x)
-        x = F.relu(self.fc3(x))
-        if self.use_dropout:
-            x = F.dropout(x)
-        x = F.relu(self.fc4(x))
-        if self.use_dropout:
-            x = F.dropout(x)
-        x = self.fc5(x)
-        return x
-    
-    # compute at runtime the forward pass
-    def forward(self, x):
-        x = self._features(x)
-        # "view" is a cost-free function (as "reshape" in numpy)
-        x = x.view(-1, self.nfts)
-        x = self._regressor(x)
-        return x
-        
 
 def weights_init(module):
     classname = module.__class__.__name__
@@ -197,7 +139,7 @@ def weights_init(module):
 
 
 net = Net(input_shape=target_shape, vgg16_basemodel=use_vgg16_basemodel, batch_normalization=use_batch_norm, dropout=use_dropout)
-net.apply(weights_init) # applica per ogni modulo la funzione passata come parametro
+net.apply(weights_init) # apply to each modules/elements the input function
 print(net)
 
 
@@ -210,24 +152,17 @@ if HAS_CUDA:
 # Training.
 
 
-import torch.optim as optim
+criterion = torch.nn.SmoothL1Loss()
+optimizer = torch.optim.SGD(net.parameters(), lr=0.01, momentum=0.9, weight_decay=0.0005)
 
 
-criterion = nn.SmoothL1Loss()
-#optimizer = optim.SGD(net.parameters(), lr=0.01, momentum=0.9, weight_decay=0.0005)
-optimizer = optim.Adam(net.parameters(), lr=0.01, weight_decay=0.0005)
-
-
-def lr_scheduler(optimizer, epoch=None, lr_decay=0.001, step=1):
+def lr_scheduler(optimizer, lr_decay=0.001, epoch=None, step=1):
     """Decay learning rate by a factor of lr_decay every step epochs.
     """
     if epoch is None or step == 1 or (epoch+1) % step == 0:
         for param_group in optimizer.param_groups:
             param_group['lr'] *= (1 - lr_decay)
     return optimizer
-
-
-import os
 
 
 def predict(network, dataset, batch_size=8):
@@ -248,28 +183,33 @@ def predict(network, dataset, batch_size=8):
 
 
 def evaluate(predictions, ground_truth_values):
+    '''Compute the mean absolute error of the predictions.
+    The parameters must be pytorch tensors.
+    '''
     loss = criterion(Variable(predictions, requires_grad=False), Variable(ground_truth_values, requires_grad=False))
     residuals = predictions - ground_truth_values
     abs_error = torch.abs(residuals)
     return loss.data[0], torch.mean(abs_error)
 
 
-model_name = 'model.ckpt'
-if os.path.exists(model_name):
+# verify that the model exists
+if os.path.exists(model_filename):
 
-    print('Found pretrained model. Loading file', model_name)
-    net.load_state_dict(torch.load(model_name))
+    print('Found pretrained model. Loading file', model_filename)
+    net.load_state_dict(torch.load(model_filename))
 
 else:
 
     best_train_loss = float('Inf')
     best_test_loss = float('Inf')
     best_epoch_id = 0
-    valid_training = True
+
     loss_history = None
 
+    # use these variables as triggers to make a decision on the training
     epochs_without_improvement = 0
     max_epochs_without_improvement = 5
+    valid_training = True
 
     # training loop
     for epoch in range(nb_epochs):
@@ -287,12 +227,14 @@ else:
         # variables used to print the training progress
         running_loss = 0.0
         max_steps = len(train_loader)
-        step = int(max_steps / 5)
+        step = int(max_steps / 5) # printing interval
 
         # batch loop
         for i, data in enumerate(train_loader):
             inputs, targets = data
             
+            # data augmentation: flip horizontally and concatenate the
+            # results to the given input batch
             if use_data_augmentation_hflip:
                 hflip = torch.from_numpy(inputs.numpy()[:,:,:,::-1].copy())
                 inputs = torch.cat((inputs, hflip))
@@ -317,7 +259,8 @@ else:
             # compute the loss according to the desired criterion
             loss = criterion(outputs, Variable(targets))
 
-            if loss.data[0] == float('Inf') or loss.data[0] is float('NaN'):
+            # check if the computation is going well
+            if abs(loss.data[0]) == float('Inf') or loss.data[0] is float('NaN'):
                 print('EARLY STOP because of invalid loss value')
                 valid_training = False
                 break
@@ -346,10 +289,11 @@ else:
             print('MAE ==>\tTrain: %.2f\tTest: %.2f' % (train_mae, test_mae))
             loss_history = [[train_loss, test_loss]] if loss_history is None else loss_history + [[train_loss, test_loss]]
 
-            # check if the network is still learning
+            # check if the network is still learning: both the training and testing
+            # losses should increase, otherwise update the trigger variable
             if test_loss < best_test_loss and train_loss < best_train_loss:
                 print('Saving checkpoint at epoch', epoch)
-                torch.save(net.state_dict(), 'checkpoint.ckpt')
+                torch.save(net.state_dict(), model_filename) # best solution so far
                 best_train_loss = train_loss
                 best_test_loss = test_loss
                 best_epoch_id = epoch
@@ -359,16 +303,20 @@ else:
 
             # note that even if we prefer to stop the training, it is considered valid
             if epochs_without_improvement >= max_epochs_without_improvement:
-                optimizer = lr_scheduler(optimizer, lr_decay=0.5)
-                epochs_without_improvement = 0
-                #print('EARLY STOP because the network does not learn anymore')
-                #break
+                if use_early_stop_triggers:
+                    print('EARLY STOP because the network does not learn anymore')
+                    break
+                else:
+                    # instead of stop the training, update the learning rate to try
+                    # to improve the learning convergence
+                    optimizer = lr_scheduler(optimizer, lr_decay=0.5)
+                    epochs_without_improvement = 0
 
     print('Finished training')
 
     if valid_training:
-        print('Saving final model...')
-        torch.save(net.state_dict(), model_name)
+        #print('Saving final model...')
+        #torch.save(net.state_dict(), model_filename)
         print('Best trained model at epoch', best_epoch_id, 'with test loss', best_test_loss)
         
         xx = np.linspace(0, len(loss_history) - 1, len(loss_history))
@@ -389,7 +337,6 @@ else:
 # Testing.
 
 
-results_filename = 'results.pth'
 if not os.path.exists(results_filename):
 
     print('Evaluating testing set...')
