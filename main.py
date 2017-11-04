@@ -45,7 +45,7 @@ use_batch_norm = True
 use_dropout = False
 use_vgg16_basemodel = True
 use_data_augmentation_hflip = True # WARNING - data augmentation doubles the batch size
-use_early_stop_triggers = False
+use_early_stop_triggers = True
 
 # name of the saved files
 model_filename = 'network_state_dict.ckpt'
@@ -141,7 +141,7 @@ def weights_init(module):
 
 
 net = Net(input_shape=target_shape, vgg16_basemodel=use_vgg16_basemodel, batch_normalization=use_batch_norm, dropout=use_dropout)
-#net.apply(weights_init) # apply to each modules/elements the input function
+net.apply(weights_init) # apply to each modules/elements the input function
 net.enable_base_model_training(True)
 print(net)
 
@@ -156,7 +156,7 @@ if HAS_CUDA:
 
 
 criterion = torch.nn.SmoothL1Loss()
-optimizer = torch.optim.SGD(net.parameters(), lr=0.001, momentum=0.9, weight_decay=0.0005)
+optimizer = torch.optim.SGD(net.parameters(), lr=0.01, momentum=0.9, weight_decay=0.0005)
 
 
 def lr_scheduler(optimizer, lr_decay=0.001, epoch=None, step=1):

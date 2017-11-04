@@ -35,8 +35,11 @@ class Net(nn.Module):
         self.nfts = x.numel()
         
         self.fc1 = nn.Linear(self.nfts, 512)
+        self.fc1_bn = nn.BatchNorm2d(512)
         self.fc2 = nn.Linear(512, 256)
+        self.fc2_bn = nn.BatchNorm2d(256)
         self.fc3 = nn.Linear(256, 128)
+        self.fc3_bn = nn.BatchNorm2d(128)
         self.fc4 = nn.Linear(128, 1)
     
     def _features(self, x):
@@ -53,15 +56,24 @@ class Net(nn.Module):
     
     def _regressor(self, x):
 
-        x = F.relu(self.fc1(x))
+        if self.use_batch_normalization:
+            x = F.relu(self.fc1_bn(self.fc1(x)))
+        else:
+            x = F.relu(self.fc1(x))
         if self.use_dropout:
             x = F.dropout(x)
 
-        x = F.relu(self.fc2(x))
+        if self.use_batch_normalization:
+            x = F.relu(self.fc2_bn(self.fc2(x)))
+        else:
+            x = F.relu(self.fc2(x))
         if self.use_dropout:
             x = F.dropout(x)
 
-        x = F.relu(self.fc3(x))
+        if self.use_batch_normalization:
+            x = F.relu(self.fc3_bn(self.fc3(x)))
+        else:
+            x = F.relu(self.fc3(x))
         if self.use_dropout:
             x = F.dropout(x)
 
