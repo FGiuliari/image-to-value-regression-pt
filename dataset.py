@@ -22,7 +22,7 @@ class FACES(torch.utils.data.Dataset):
     '''
 
     def __init__(self, train=True, transform=None):
-        self.matfile = '/media/Data/datasets/wiki_crop_aligned/bin_data/wiki_crop_aligned_data.mat'
+        self.matfile = '/media/Data/datasets/image-to-value-regression-using-deep-learning/wiki_crop_aligned/bin_data/wiki_crop_aligned_data.mat'
         self.transform = transform
         self.train = train  # training set or test set
 
@@ -31,6 +31,20 @@ class FACES(torch.utils.data.Dataset):
         values = np.squeeze(data['values'])
         train_idx = np.squeeze(data['train_idx'])
         test_idx = np.squeeze(data['test_idx'])
+
+        '''idx = np.argwhere(values.squeeze() >= 15.)
+        idx = idx.squeeze()
+        images = images[idx]
+        values = values[idx]
+        idx = np.argwhere(values.squeeze() <= 52.)
+        idx = idx.squeeze()
+        images = images[idx]
+        values = values[idx]
+
+        nb_samples = images.shape[0]
+        idx = np.random.permutation(nb_samples)
+        train_idx = idx[:int(nb_samples * 0.8)]
+        test_idx = idx[int(nb_samples * 0.8):]'''
 
         if self.train:
             self.train_data = images[train_idx]
@@ -53,9 +67,8 @@ class FACES(torch.utils.data.Dataset):
             image, target = self.test_data[index], self.test_values[index]
 
         # image has shape HWC
-        image = np.transpose(image, (1, 0, 2)) # to WHC
-        image = Image.fromarray(image)
-
+        image = Image.fromarray(image.squeeze())
+        
         if self.transform is not None:
             image = self.transform(image)
 
@@ -178,6 +191,20 @@ class FATDATA(torch.utils.data.Dataset):
         train_idx = np.squeeze(data['train_idx'])
         test_idx = np.squeeze(data['test_idx'])
 
+        idx = np.argwhere(values.squeeze() >= 8.)
+        idx = idx.squeeze()
+        images = images[idx]
+        values = values[idx]
+        idx = np.argwhere(values.squeeze() <= 15.)
+        idx = idx.squeeze()
+        images = images[idx]
+        values = values[idx]
+
+        nb_samples = images.shape[0]
+        idx = np.random.permutation(nb_samples)
+        train_idx = idx[:int(nb_samples * 0.8)]
+        test_idx = idx[int(nb_samples * 0.8):]
+
         if self.train:
             self.train_data = images[train_idx]
             self.train_labels = labels[train_idx]
@@ -200,14 +227,11 @@ class FATDATA(torch.utils.data.Dataset):
         else:
             image, target, label = self.test_data[index], self.test_values[index], self.test_labels[index]
 
-        # image is in the format CWH
-        if self.nb_channels == 1:
-            image = np.expand_dims(image, 0)
-        image = np.transpose(image, (1, 2, 0)) # to WHC
+        # image is in the format HWC
         image = Image.fromarray(image.squeeze())
 
         if self.transform is not None:
-            image = self.transform(image)
+            image = self.transform(image) # normalize between -1 and 1
 
         return image, target #, str(label)
     
