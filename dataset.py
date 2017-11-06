@@ -32,20 +32,6 @@ class FACES(torch.utils.data.Dataset):
         train_idx = np.squeeze(data['train_idx'])
         test_idx = np.squeeze(data['test_idx'])
 
-        '''idx = np.argwhere(values.squeeze() >= 15.)
-        idx = idx.squeeze()
-        images = images[idx]
-        values = values[idx]
-        idx = np.argwhere(values.squeeze() <= 52.)
-        idx = idx.squeeze()
-        images = images[idx]
-        values = values[idx]
-
-        nb_samples = images.shape[0]
-        idx = np.random.permutation(nb_samples)
-        train_idx = idx[:int(nb_samples * 0.8)]
-        test_idx = idx[int(nb_samples * 0.8):]'''
-
         if self.train:
             self.train_data = images[train_idx]
             self.train_values = values[train_idx]
@@ -190,20 +176,6 @@ class FATDATA(torch.utils.data.Dataset):
         values = np.squeeze(data['values'])
         train_idx = np.squeeze(data['train_idx'])
         test_idx = np.squeeze(data['test_idx'])
-
-        idx = np.argwhere(values.squeeze() >= 8.)
-        idx = idx.squeeze()
-        images = images[idx]
-        values = values[idx]
-        idx = np.argwhere(values.squeeze() <= 15.)
-        idx = idx.squeeze()
-        images = images[idx]
-        values = values[idx]
-
-        nb_samples = images.shape[0]
-        idx = np.random.permutation(nb_samples)
-        train_idx = idx[:int(nb_samples * 0.8)]
-        test_idx = idx[int(nb_samples * 0.8):]
 
         if self.train:
             self.train_data = images[train_idx]
