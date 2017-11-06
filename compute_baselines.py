@@ -31,9 +31,9 @@ else:
     torch.cuda.manual_seed(seed)
     gpu_id = 0
     
-task = 'age-from-faces' # age-from-faces, gender-from-depth, fat-from-depth
+task = 'fat-from-depth' # age-from-faces, gender-from-depth, fat-from-depth
 dsname = 'HeadLegArmLess' # Full, HeadLess, HeadLegLess, HeadLegArmLess
-features_to_extract = 'pca' # hog, pca, vgg16
+features_to_extract = 'hog' # hog, pca, vgg16
 regressor_mode = 'svm' # svm, random_forest
 shuffle_train_set = True
 
@@ -49,6 +49,9 @@ print('Task:', task)
 print('Feature:', features_to_extract)
 print('Regression:', regressor_mode)
 print('******************')
+
+rows = 181 if task == 'age-from-faces' else 224
+cols = 121 if task == 'age-from-faces' else 224
 
 # load extracted features
 if os.path.exists(feature_filename):
@@ -93,12 +96,12 @@ else:
 
             if features_to_extract == 'hog':
                 from skimage.feature import hog
-                from skimage import data, color
                 x = x.squeeze().numpy()
                 y = y.squeeze()
                 if len(x.shape) == 3:
                     x = np.transpose(x, (1, 2, 0))
-                x = color.rgb2gray(x)
+                    from skimage import data, color
+                    x = color.rgb2gray(x)
                 batch_features = hog(x, orientations=8, pixels_per_cell=(16, 16), cells_per_block=(1, 1))
                 batch_features = torch.FloatTensor(batch_features)
                 batch_features = batch_features.view(1, batch_features.numel())
@@ -108,8 +111,8 @@ else:
                 y = y.squeeze()
                 if len(x.shape) == 3:
                     x = np.transpose(x, (1, 2, 0))
-                from skimage import color
-                x = color.rgb2gray(x)
+                    from skimage import color
+                    x = color.rgb2gray(x)
                 batch_features = torch.FloatTensor(x.reshape(1, x.size))
             
             if features_to_extract == 'vgg16':
@@ -149,23 +152,23 @@ else:
     print('Saving features...')
     torch.save((train_set, test_set), feature_filename)
 
-    if features_to_extract == 'pca':
-        from sklearn.decomposition import IncrementalPCA
-        print('Reducing feature dimension using Incremental PCA...')
-        new_feat_size = 60
-        ipca = IncrementalPCA(n_components=new_feat_size, batch_size=new_feat_size)
-        ipca.fit(train_set[0].numpy())
-        eigenfaces = ipca.components_.reshape((new_feat_size, 181, 121, 1))
-        plt.figure()
-        for i in range(60):
-            plt.subplot(6,10,i+1)
-            plt.imshow(np.squeeze(eigenfaces[i]))
-        new_train_data = torch.FloatTensor(ipca.transform(train_set[0].numpy()))
-        train_set = (new_train_data, train_set[1])
-        new_test_data = torch.FloatTensor(ipca.transform(test_set[0].numpy()))
-        test_set = (new_test_data, test_set[1])
-        print('Saving PCA features...')
-        torch.save((train_set, test_set), feature_filename)
+if features_to_extract == 'pca':
+    from sklearn.decomposition import IncrementalPCA
+    print('Reducing feature dimension using Incremental PCA...')
+    new_feat_size = 200
+    ipca = IncrementalPCA(n_components=new_feat_size, batch_size=new_feat_size)
+    ipca.fit(train_set[0].numpy())
+    '''eigenfaces = ipca.components_.reshape((new_feat_size, rows, cols, 1))
+    plt.figure()
+    for i in range(60):
+        plt.subplot(6,10,i+1)
+        plt.imshow(np.squeeze(eigenfaces[i]))'''
+    new_train_data = torch.FloatTensor(ipca.transform(train_set[0].numpy()))
+    train_set = (new_train_data, train_set[1])
+    new_test_data = torch.FloatTensor(ipca.transform(test_set[0].numpy()))
+    test_set = (new_test_data, test_set[1])
+    #print('Saving PCA features...')
+    #torch.save((train_set, test_set), feature_filename)
 
 
 #%% ---------------------------------------------------------------------------
