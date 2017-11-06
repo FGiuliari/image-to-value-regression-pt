@@ -14,25 +14,24 @@ from torchvision import transforms
 import dataset
 import os
 
+import numpy as np
 
 #%% -------------------------- >>> MODIFY HERE <<< ----------------------------
 # Settings.
 
+
+# set the seed for debugging purposes
+seed = 23092017
+np.random.seed(seed)
+torch.manual_seed(seed)
 
 # check cuda core
 HAS_CUDA = True
 if not torch.cuda.is_available():
     print('CUDA not available, using CPU')
     HAS_CUDA = False
-
-# set the seed for debugging purposes
-seed = 23092017
-torch.manual_seed(seed)
-if HAS_CUDA:
+else:
     torch.cuda.manual_seed(seed)
-
-# if any, prefer the first gpu
-if HAS_CUDA:
     gpu_id = 0
 
 # what are the tasks in this demo?
@@ -86,9 +85,9 @@ test_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size, shuff
 
 
 import matplotlib.pyplot as plt
-import numpy as np
 
 
+'''
 def imshow(img):
     img = img / 2 + 0.5 # unnomalize
     plt.imshow(np.transpose(img.numpy(), (1, 2, 0))) # channel last
@@ -117,6 +116,7 @@ show_stats(train_set.train_values, 'TRAIN value distribution')
 show_stats(test_set.test_values, 'TEST value distribution')
 
 plt.show()
+'''
 
 
 #%% ---------------------------------------------------------------------------
@@ -159,7 +159,8 @@ if HAS_CUDA:
 
 
 criterion = torch.nn.MSELoss()
-optimizer = torch.optim.SGD(net.parameters(), lr=0.01, momentum=0.9, weight_decay=0.0005)
+#optimizer = torch.optim.SGD(net.parameters(), lr=0.003, momentum=0.9, weight_decay=0.0005)
+optimizer = torch.optim.Adam(net.parameters(), lr=0.003, weight_decay=0.0005)
 
 
 def lr_scheduler(optimizer, lr_decay=0.001, epoch=None, step=1):
