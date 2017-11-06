@@ -39,11 +39,11 @@ if HAS_CUDA:
 task = 'fat-from-depth' # age-from-faces, gender-from-depth, fat-from-depth
 
 nb_epochs = 60 # max number of training epochs
-batch_size = 1 # <== reduce this value if you encounter memory errors
+batch_size = 16 # <== reduce this value if you encounter memory errors
 shuffle_train_set = True
 use_batch_norm = True
 use_dropout = False
-use_vgg16_basemodel = True
+use_vgg16_basemodel = False
 use_data_augmentation_hflip = True # WARNING - data augmentation doubles the batch size
 use_early_stop_triggers = True
 
@@ -55,6 +55,8 @@ results_filename = 'results.pth'
 # -------------------------------------
 # Load dataset.
 
+
+print('Loading data...')
 
 nb_channels = 3 if use_vgg16_basemodel or task == 'age-from-faces' else 1 # vgg16 requires RGB images
 target_shape = (180, 120) if task == 'age-from-faces' else (224, 224)
@@ -68,12 +70,12 @@ if task == 'age-from-faces':
     test_set = dataset.FACES(False, transf)
 
 if task == 'gender-from-depth':
-    train_set = dataset.FATSYNTH('HeadLegLess', nb_channels, train=True, transform=transf)
-    test_set = dataset.FATSYNTH('HeadLegLess', nb_channels, train=False, transform=transf)
+    train_set = dataset.FATSYNTH('HeadLegArmLess', nb_channels, train=True, transform=transf)
+    test_set = dataset.FATSYNTH('HeadLegArmLess', nb_channels, train=False, transform=transf)
 
 if task == 'fat-from-depth':
-    train_set = dataset.FATDATA('HeadLegLess', nb_channels, train=True, transform=transf)
-    test_set = dataset.FATDATA('HeadLegLess', nb_channels, train=False, transform=transf)
+    train_set = dataset.FATDATA('HeadLegArmLess', nb_channels, train=True, transform=transf)
+    test_set = dataset.FATDATA('HeadLegArmLess', nb_channels, train=False, transform=transf)
 
 train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, shuffle=shuffle_train_set, num_workers=0)
 test_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=0)
@@ -87,7 +89,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-'''
 def imshow(img):
     img = img / 2 + 0.5 # unnomalize
     plt.imshow(np.transpose(img.numpy(), (1, 2, 0))) # channel last
@@ -99,7 +100,7 @@ images, targets = dataiter.next() # extract batch
 
 plt.figure()
 imshow(torchvision.utils.make_grid(images))
-print(' '.join('%.3f' % targets[j] for j in range(batch_size)))
+#print(' '.join('%.3f' % targets[j] for j in range(batch_size)))
 
 
 def show_stats(x, title):
@@ -116,7 +117,6 @@ show_stats(train_set.train_values, 'TRAIN value distribution')
 show_stats(test_set.test_values, 'TEST value distribution')
 
 plt.show()
-'''
 
 
 #%% ---------------------------------------------------------------------------
@@ -125,6 +125,9 @@ plt.show()
 
 from torch.autograd import Variable
 from network import Net # definition of the (custom) network architecture
+
+
+print('Setting up network...')
 
 
 def weights_init(module):
@@ -155,7 +158,7 @@ if HAS_CUDA:
 # Training.
 
 
-criterion = torch.nn.SmoothL1Loss()
+criterion = torch.nn.MSELoss()
 optimizer = torch.optim.SGD(net.parameters(), lr=0.01, momentum=0.9, weight_decay=0.0005)
 
 
@@ -203,6 +206,8 @@ if os.path.exists(model_filename):
 
 else:
 
+    print('Start training')
+
     best_train_loss = float('Inf')
     best_test_loss = float('Inf')
     best_epoch_id = 0
@@ -224,7 +229,7 @@ else:
         print('\nEPOCH', epoch + 1)
 
         # at each epoch, update the optimizer learning rate
-        #optimizer = lr_scheduler(optimizer, lr_decay=0.25)
+        optimizer = lr_scheduler(optimizer, lr_decay=0.25)
 
         # enable training mode (the function eval() freezes the weight gradients)
         net.train()
@@ -352,16 +357,21 @@ print('\nFinal results:')
 print('Loss: %.3f' % test_loss)
 print('MAE: %.2f' % test_mae)
 
+
+#%% ---------------------------------------------------------------------------
+# Visualization.
+
+
 # show loss history
 plt.figure()
+plt.title('Loss history')
+plt.xlabel('Epochs')
+plt.ylabel('Smooth L1 Loss')
 xx = np.linspace(0, loss_history.shape[0] - 1, loss_history.shape[0])
 plt.grid(True)
 plt.plot(xx, loss_history[:, 0], color='b', label='train')
 plt.plot(xx, loss_history[:, 1], color='r', label='test')
 plt.legend()
-plt.title('Training results')
-plt.xlabel('Epochs')
-plt.ylabel('Loss')
 
 # show prediction results
 plt.figure()
@@ -373,6 +383,7 @@ gt = gt[idx]
 yy = yy[idx]
 err = yy - gt
 plt.subplot(2,1,1)
+plt.title('Predictions')
 plt.grid(True)
 plt.plot(xx, gt, color='g', label='gt')
 plt.plot(xx, yy, color='b', label='yy')
@@ -381,4 +392,27 @@ plt.subplot(2,1,2)
 plt.grid(True)
 plt.plot(xx, err, color='r', label='err')
 plt.legend()
+
+
+# show bland-altman plot of predictions
+def bland_altman_plot(data1, data2, *args, **kwargs):
+    data1 = np.asarray(data1)
+    data2 = np.asarray(data2)
+    mean  = np.mean([data1, data2], axis=0)
+    diff  = data1 - data2        # Difference between data1 and data2
+    md    = np.mean(diff)        # Mean of the difference
+    sd    = np.std(diff, axis=0) # Standard deviation of the difference
+
+    plt.figure()
+    plt.title('Bland-Altman plot')
+    plt.xlabel('mean')
+    plt.ylabel('diff')
+    plt.scatter(mean, diff, *args, **kwargs)
+    plt.axhline(md,           color='gray', linestyle='--')
+    plt.axhline(md + 1.96*sd, color='gray', linestyle='--')
+    plt.axhline(md - 1.96*sd, color='gray', linestyle='--')
+
+
+bland_altman_plot(gt, yy)
+
 plt.show()

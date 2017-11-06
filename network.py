@@ -24,7 +24,7 @@ class Net(nn.Module):
             self.enable_base_model_training(True)
         else:
             self.pool = nn.MaxPool2d(2, 2)
-            self.conv1 = nn.Conv2d(input_shape[0], 32, 5)
+            self.conv1 = nn.Conv2d(input_shape[0], 32, 3)
             self.conv1_bn = nn.BatchNorm2d(32)
             self.conv2 = nn.Conv2d(32, 16, 3)
             self.conv2_bn = nn.BatchNorm2d(16)
