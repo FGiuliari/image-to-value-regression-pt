@@ -61,7 +61,7 @@ assert os.path.exists(model_filename)
 print('Loading model file', model_filename)
 net = Net(target_shape, vgg16_basemodel=False, batch_normalization=True, dropout=False)
 net.load_state_dict(torch.load(model_filename))
-net.eval()
+net.eval() # must set the network in evaluation mode (by default, batch normalization and dropout are in training mode)
 
 if HAS_CUDA:
     net.cuda(gpu_id)
@@ -71,15 +71,15 @@ if HAS_CUDA:
 # Generate saliency maps.
 
 
-def generate_occluded_images(image, k_size, step=1):
+def generate_occluded_images(image, k_size):
     ch, rows, cols = image.shape
     nb_pixels = rows * cols
     masked_images = torch.zeros(nb_pixels, ch, rows, cols)
     coords = np.zeros((nb_pixels, 2), dtype=np.uint32)
     it = 0
     h_size = int(k_size / 2)
-    for u in range(h_size, rows - h_size, step):
-        for v in range(h_size, cols - h_size, step):
+    for u in range(h_size, rows, h_size):
+        for v in range(h_size, cols, h_size):
             masked_images[it] = image.clone()
             masked_images[it][:, u-h_size:u+h_size, v-h_size:v+h_size] = 0  # mask color
             coords[it] = (u, v)
@@ -91,12 +91,12 @@ def generate_occluded_images(image, k_size, step=1):
 
 saliency_maps = np.zeros((nb_samples,) + target_shape[1:], dtype=np.float32)
 for i, data in enumerate(test_loader):
-    print('[%3d/%3d] %.2f %%' % (i + 1, nb_samples, (i + 1) / nb_samples))
+    print('[%3d/%3d] %.2f %%' % (i + 1, nb_samples, 100 * (i + 1) / nb_samples))
     image, target = data
     if HAS_CUDA:
         image = image.cuda(gpu_id)
     ref_pred = net(Variable(image)).cpu().data[0][0]
-    masked_images, coords = generate_occluded_images(image[0], k_size=15, step=5)
+    masked_images, coords = generate_occluded_images(image[0], k_size=15)
     nb_masked_images = masked_images.shape[0]
     for j in range(0, nb_masked_images):
         img = masked_images[j].unsqueeze(0)
@@ -113,25 +113,55 @@ for i, data in enumerate(test_loader):
 from scipy.ndimage.filters import gaussian_filter
 
 
+smaps_smoothed = np.zeros(saliency_maps.shape, dtype=np.float32)
 smaps_mean = np.zeros((224,224), dtype=np.float32)
 smaps_variance = np.zeros((224,224), dtype=np.float32)
-smaps_smoothed = np.zeros(saliency_maps.shape, dtype=np.float32)
-
-print('Computing mean saliency')
-for i in range(nb_samples):
-    smaps_mean += saliency_maps[i]
-    
-smaps_mean = smaps_mean / nb_samples
-
-print('Computing saliency variance')
-for i in range(nb_samples):
-    smaps_variance += np.power(saliency_maps[i] - smaps_mean, 2)
-    
-smaps_variance = smaps_variance / nb_samples
 
 print('Computing smoothed saliency for visualization purposes')
 for i in range(nb_samples):
     smaps_smoothed[i] = gaussian_filter(saliency_maps[i], 7)
 
+print('Computing mean saliency')
+for i in range(nb_samples):
+    smaps_mean += smaps_smoothed[i]
+    
+smaps_mean = smaps_mean / nb_samples
+
+print('Computing saliency variance')
+for i in range(nb_samples):
+    smaps_variance += np.power(smaps_smoothed[i] - smaps_mean, 2)
+    
+smaps_variance = smaps_variance / nb_samples
+
 info = 'info, saliency_maps, smaps_smoothed, smaps_mean, smaps_variance'
 torch.save((info, saliency_maps, smaps_smoothed, smaps_mean, smaps_variance), 'saliency_maps.pth')
+
+
+import matplotlib.pyplot as plt
+
+
+plt.figure()
+plt.title('Mean')
+plt.imshow(smaps_mean)
+
+plt.figure()
+plt.title('Variance')
+plt.imshow(smaps_variance)
+
+plt.show()
+
+
+#%% ---------------------------------------------------------------------------
+
+
+# show saliency "video"
+plt.figure()
+for i in range(0, nb_samples, 9):
+    gt = test_set.test_values[i]
+    plt.title('Saliency maps: ' + str(i + 1) + ' gt: ' + str(gt))
+    plt.imshow(smaps_smoothed[i])
+    plt.pause(0.250)
+
+
+
+
