@@ -16,6 +16,7 @@ import os
 
 import numpy as np
 
+
 #%% -------------------------- >>> MODIFY HERE <<< ----------------------------
 # Settings.
 
@@ -48,7 +49,7 @@ use_early_stop_triggers = True
 
 # name of the saved files
 model_filename = 'network_state_dict.ckpt'
-results_filename = 'results.pth'
+results_filename = 'training_results.pth'
 
 
 # -------------------------------------
@@ -76,6 +77,10 @@ if task == 'fat-from-depth':
     train_set = dataset.FATDATA('HeadLegArmLess', nb_channels, train=True, transform=transf)
     test_set = dataset.FATDATA('HeadLegArmLess', nb_channels, train=False, transform=transf)
 
+if task == 'rectangles':
+    train_set = dataset.RECTANGLES(train=True, transform=transf)
+    test_set = dataset.RECTANGLES(train=False, transform=transf)
+
 train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, shuffle=shuffle_train_set, num_workers=0)
 test_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=0)
 
@@ -87,7 +92,6 @@ test_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size, shuff
 import matplotlib.pyplot as plt
 
 
-'''
 def imshow(img):
     img = img / 2 + 0.5 # unnomalize
     plt.imshow(np.transpose(img.numpy(), (1, 2, 0))) # channel last
@@ -116,7 +120,6 @@ show_stats(train_set.train_values, 'TRAIN value distribution')
 show_stats(test_set.test_values, 'TEST value distribution')
 
 plt.show()
-'''
 
 
 #%% ---------------------------------------------------------------------------
@@ -158,7 +161,7 @@ if HAS_CUDA:
 # Training.
 
 
-criterion = torch.nn.MSELoss()
+criterion = torch.nn.SmoothL1Loss()
 #optimizer = torch.optim.SGD(net.parameters(), lr=0.003, momentum=0.9, weight_decay=0.0005)
 optimizer = torch.optim.Adam(net.parameters(), lr=0.003, weight_decay=0.0005)
 
@@ -345,9 +348,12 @@ if not os.path.exists(results_filename):
     test_predictions = predict(net, test_set)
     ground_truth_values = torch.FloatTensor(test_set.test_values)
     test_loss, test_mae = evaluate(test_predictions, ground_truth_values)
+    
+    if 'loss_history' not in locals():
+        loss_history = None
 
     info = 'info, test_loss, test_mae, preds, gt_values'
-    torch.save((info, loss_history, test_loss, test_mae, test_predictions, ground_truth_values), 'results.pth')
+    torch.save((info, loss_history, test_loss, test_mae, test_predictions, ground_truth_values), results_filename)
 
 else:
 
@@ -364,15 +370,16 @@ print('MAE: %.2f' % test_mae)
 
 
 # show loss history
-plt.figure()
-plt.title('Loss history')
-plt.xlabel('Epochs')
-plt.ylabel('Smooth L1 Loss')
-xx = np.linspace(0, loss_history.shape[0] - 1, loss_history.shape[0])
-plt.grid(True)
-plt.plot(xx, loss_history[:, 0], color='b', label='train')
-plt.plot(xx, loss_history[:, 1], color='r', label='test')
-plt.legend()
+if loss_history is not None:
+    plt.figure()
+    plt.title('Loss history')
+    plt.xlabel('Epochs')
+    plt.ylabel('Smooth L1 Loss')
+    xx = np.linspace(0, loss_history.shape[0] - 1, loss_history.shape[0])
+    plt.grid(True)
+    plt.plot(xx, loss_history[:, 0], color='b', label='train')
+    plt.plot(xx, loss_history[:, 1], color='r', label='test')
+    plt.legend()
 
 # show prediction results
 plt.figure()
