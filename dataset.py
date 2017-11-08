@@ -272,3 +272,129 @@ class RECTANGLES(torch.utils.data.Dataset):
             return len(self.train_data)
         else:
             return len(self.test_data)
+
+
+#%% ---------------------------------------------------------------------------
+
+
+class SHAPES(torch.utils.data.Dataset):
+    '''Rectangles Dataset.
+
+    Args:
+        train (bool, optional): If True, creates dataset from training set, otherwise
+            creates from test set.
+        transform (callable, optional): A function/transform that takes in an PIL image
+            and returns a transformed version.
+    
+    '''
+
+    def __init__(self, train=True, transform=None):
+        self.matfile = '/media/Data/datasets/image-to-value-regression-using-deep-learning/shapes/bin_data/shapes.mat'
+        self.transform = transform
+        self.train = train  # training set or test set
+
+        data = sio.loadmat(self.matfile)
+        images = np.squeeze(data['images'])
+        values = np.squeeze(data['values'])
+        train_idx = np.squeeze(data['train_idx'])
+        test_idx = np.squeeze(data['test_idx'])
+
+        if self.train:
+            self.train_data = images[train_idx]
+            self.train_values = values[train_idx]
+        else:
+            self.test_data = images[test_idx]
+            self.test_values = values[test_idx]
+
+    def __getitem__(self, index):
+        '''
+        Args:
+            index (int): Index.
+
+        Returns:
+            tuple: (image, target).
+        '''
+        if self.train:
+            image, target = self.train_data[index], self.train_values[index]
+        else:
+            image, target = self.test_data[index], self.test_values[index]
+
+        # image has shape HWC
+        image = Image.fromarray(image.squeeze())
+        
+        if self.transform is not None:
+            image = self.transform(image)
+
+        return image, target
+    
+    def __len__(self):
+        if self.train:
+            return len(self.train_data)
+        else:
+            return len(self.test_data)
+
+
+#%% ---------------------------------------------------------------------------
+
+
+class LEGLESS(torch.utils.data.Dataset):
+    '''FatNet Dataset.
+
+    Args:
+        name (string): Dataset name in ['Full', 'HeadLess', 'HeadLegLess', 'HeadLegArmLess'].
+        nb_channels (int): Number of duplicated channels for each depth image.
+        train (bool, optional): If True, creates dataset from training set, otherwise
+            creates from test set.
+        transform (callable, optional): A function/transform that takes in an PIL image
+            and returns a transformed version.
+    
+    '''
+
+    def __init__(self, train=True, transform=None):
+        
+        if train:
+            matfile = 'train.mat'
+        else:
+            matfile = 'test.mat'
+            
+        self.matfile = '/media/Data/datasets/FatNet/legless/bin_data/' + matfile
+        self.transform = transform
+        self.train = train  # training set or test set
+
+        data = sio.loadmat(self.matfile)
+        images = np.squeeze(data['images'])
+        values = np.squeeze(data['targets'])
+
+        if self.train:
+            self.train_data = images
+            self.train_values = values
+        else:
+            self.test_data = images
+            self.test_values = values
+
+    def __getitem__(self, index):
+        '''
+        Args:
+            index (int): Index.
+
+        Returns:
+            tuple: (image, target).
+        '''
+        if self.train:
+            image, target = self.train_data[index], self.train_values[index]
+        else:
+            image, target = self.test_data[index], self.test_values[index]
+
+        # image is in the format HWC
+        image = Image.fromarray(image.squeeze())
+
+        if self.transform is not None:
+            image = self.transform(image) # normalize between -1 and 1
+
+        return image, target
+    
+    def __len__(self):
+        if self.train:
+            return len(self.train_data)
+        else:
+            return len(self.test_data)
