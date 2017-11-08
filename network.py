@@ -18,29 +18,27 @@ class Net(nn.Module):
         self.base_model = None
         if self.use_base_model:
             if self.use_batch_normalization:
-                self.base_model = models.vgg16_bn(pretrained=True).features
+                self.base_model = models.vgg16_bn(pretrained=False).features
             else:
                 self.base_model = models.vgg16(pretrained=True).features
             self.enable_base_model_training(True)
         else:
             self.pool = nn.MaxPool2d(2, 2)
-            self.conv1 = nn.Conv2d(input_shape[0], 32, 3)
+            self.conv1 = nn.Conv2d(input_shape[0], 32, 7)
             self.conv1_bn = nn.BatchNorm2d(32)
-            self.conv2 = nn.Conv2d(32, 16, 3)
-            self.conv2_bn = nn.BatchNorm2d(16)
+            self.conv2 = nn.Conv2d(32, 64, 3)
+            self.conv2_bn = nn.BatchNorm2d(64)
 
         # to compute the number of vectorized features we need to compute
         # once the forward pass on the feature_extractor
         x = self._features(torch.autograd.Variable(torch.zeros(1, *input_shape)))
         self.nfts = x.numel()
         
-        self.fc1 = nn.Linear(self.nfts, 512)
-        self.fc1_bn = nn.BatchNorm2d(512)
-        self.fc2 = nn.Linear(512, 256)
-        self.fc2_bn = nn.BatchNorm2d(256)
-        self.fc3 = nn.Linear(256, 128)
-        self.fc3_bn = nn.BatchNorm2d(128)
-        self.fc4 = nn.Linear(128, 1)
+        self.fc1 = nn.Linear(self.nfts, 1024)
+        self.fc1_bn = nn.BatchNorm2d(1024)
+        self.fc2 = nn.Linear(1024, 128)
+        self.fc2_bn = nn.BatchNorm2d(128)
+        self.fc3 = nn.Linear(128, 1)
     
     def _features(self, x):
         if self.use_base_model:
@@ -70,14 +68,7 @@ class Net(nn.Module):
         if self.use_dropout:
             x = F.dropout(x)
 
-        if self.use_batch_normalization:
-            x = F.relu(self.fc3_bn(self.fc3(x)))
-        else:
-            x = F.relu(self.fc3(x))
-        if self.use_dropout:
-            x = F.dropout(x)
-
-        x = self.fc4(x)
+        x = self.fc3(x)
         return x
     
     # compute at runtime the forward pass
