@@ -63,7 +63,10 @@ target_shape = (180, 120) if not use_vgg16_basemodel and task == 'age-from-faces
 target_shape = (nb_channels,) + target_shape
 
 # the images are normalized between 0 and 1 (thanks to the ToTensor transformation) and then normalized between -1 and +1.
-transf = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,) * nb_channels, (0.5,) * nb_channels)])
+if not use_vgg16_basemodel:
+    transf = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,) * nb_channels, (0.5,) * nb_channels)])
+else:
+    transf = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))])
 
 if task == 'age-from-faces':
     train_set = dataset.FACES(True, transf)
