@@ -39,13 +39,13 @@ else:
 task = 'fat-from-depth' # age-from-faces, gender-from-depth, fat-from-depth
 
 nb_epochs = 60 # max number of training epochs
-batch_size = 32 # <== reduce this value if you encounter memory errors
+batch_size = 16 # <== reduce this value if you encounter memory errors
 shuffle_train_set = True
 use_batch_norm = True
 use_dropout = False
-use_vgg16_basemodel = False
+use_vgg16_basemodel = True
 use_data_augmentation_hflip = True # WARNING - data augmentation doubles the batch size
-use_early_stop_triggers = False
+use_early_stop_triggers = True
 
 # name of the saved files
 model_filename = 'network_state_dict.ckpt'
@@ -59,7 +59,7 @@ results_filename = 'training_results.pth'
 print('Loading data...')
 
 nb_channels = 3 if use_vgg16_basemodel or task == 'age-from-faces' else 1 # vgg16 requires RGB images
-target_shape = (180, 120) if task == 'age-from-faces' else (200, 150)
+target_shape = (180, 120) if not use_vgg16_basemodel and task == 'age-from-faces' else (224, 224)
 target_shape = (nb_channels,) + target_shape
 
 # the images are normalized between 0 and 1 (thanks to the ToTensor transformation) and then normalized between -1 and +1.
@@ -74,8 +74,8 @@ if task == 'gender-from-depth':
     test_set = dataset.FATSYNTH('HeadLegLess', nb_channels, train=False, transform=transf)
 
 if task == 'fat-from-depth':
-    train_set = dataset.LEGLESS(train=True, transform=transf)
-    test_set = dataset.LEGLESS(train=False, transform=transf)
+    train_set = dataset.FATDATA_CROP('HeadLegLess', nb_channels, train=True, transform=transf)
+    test_set = dataset.FATDATA_CROP('HeadLegLess', nb_channels, train=False, transform=transf)
 
 if task == 'rectangles':
     train_set = dataset.RECTANGLES(train=True, transform=transf)
@@ -139,6 +139,7 @@ from network import Net # definition of the (custom) network architecture
 print('Setting up network...')
 
 
+'''
 def weights_init(module):
     classname = module.__class__.__name__
     if classname.find('Conv') != -1:
@@ -150,10 +151,11 @@ def weights_init(module):
     if classname.find('Linear') != -1:
         module.weight.data.normal_(0.0, 0.01)
         module.bias.data.fill_(0.0)
+'''
 
 
 net = Net(input_shape=target_shape, vgg16_basemodel=use_vgg16_basemodel, batch_normalization=use_batch_norm, dropout=use_dropout)
-net.apply(weights_init) # apply to each modules/elements the input function
+#net.apply(weights_init) # apply to each modules/elements the input function
 print(net)
 
 
@@ -315,7 +317,7 @@ else:
             else:
                 # when the network struggle to learn, try to help the training
                 # by reducing the learning rate
-                optimizer = lr_scheduler(optimizer, lr_decay=0.1)
+                optimizer = lr_scheduler(optimizer, lr_decay=0.5)
                 epochs_without_improvement += 1
 
             # note that even if we prefer to stop the training, it is considered valid
@@ -330,7 +332,7 @@ else:
                     epochs_without_improvement = 0
 
             # at each epoch, update the optimizer learning rate
-            optimizer = lr_scheduler(optimizer, lr_decay=0.25)
+            #optimizer = lr_scheduler(optimizer, lr_decay=0.25)
 
     print('\nFinished training')
 

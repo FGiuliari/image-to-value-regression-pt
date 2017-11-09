@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.models as models
+import math
 
 
 # to build a network, extend the class nn.Module
@@ -18,7 +19,7 @@ class Net(nn.Module):
         self.base_model = None
         if self.use_base_model:
             if self.use_batch_normalization:
-                self.base_model = models.vgg16_bn(pretrained=False).features
+                self.base_model = models.vgg16_bn(pretrained=True).features
             else:
                 self.base_model = models.vgg16(pretrained=True).features
             self.enable_base_model_training(True)
@@ -36,9 +37,9 @@ class Net(nn.Module):
         
         self.fc1 = nn.Linear(self.nfts, 1024)
         self.fc1_bn = nn.BatchNorm2d(1024)
-        self.fc2 = nn.Linear(1024, 128)
-        self.fc2_bn = nn.BatchNorm2d(128)
-        self.fc3 = nn.Linear(128, 1)
+        self.fc2 = nn.Linear(1024, 1)
+        
+        self.reset_weights()
     
     def _features(self, x):
         if self.use_base_model:
@@ -61,14 +62,7 @@ class Net(nn.Module):
         if self.use_dropout:
             x = F.dropout(x)
 
-        if self.use_batch_normalization:
-            x = F.relu(self.fc2_bn(self.fc2(x)))
-        else:
-            x = F.relu(self.fc2(x))
-        if self.use_dropout:
-            x = F.dropout(x)
-
-        x = self.fc3(x)
+        x = self.fc2(x)
         return x
     
     # compute at runtime the forward pass
@@ -84,3 +78,43 @@ class Net(nn.Module):
         if self.base_model is not None:
             for param in self.base_model.parameters():
                 self.base_model.requires_grad = enable
+    
+    def _normal_init(self, module, mu, std):
+        module.weight.data.normal_(mu, std)
+        module.bias.data.fill_(mu)
+    
+    def _xavier_init(self, module):
+        if len(module.weight.data.shape) > 1:
+            N_in = module.weight.data.size()[1]
+            N_out = module.weight.data.size()[0]
+            N = (N_in + N_out) / 2
+        else:
+            N = module.weight.data.size()[0]
+        xavier_var = 1. / N
+        xavier_std = math.sqrt(xavier_var)
+        module.weight.data.normal_(0.0, xavier_std)
+        module.bias.data.fill_(0.0)
+    
+    def reset_weights(self):
+        
+        if not self.use_base_model:
+            self._xavier_init(self.conv1)
+            self._xavier_init(self.conv1_bn)
+            
+            self._xavier_init(self.conv2)
+            self._xavier_init(self.conv2_bn)
+        
+        self._xavier_init(self.fc1)
+        self._xavier_init(self.fc1_bn)
+        
+        self._normal_init(self.fc2, 0.0, 0.001)
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
