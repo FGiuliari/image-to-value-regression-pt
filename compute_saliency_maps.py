@@ -39,14 +39,17 @@ else:
 
 print('Loading data...')
 
-nb_channels = 1
-target_image_res = (200, 150)
+nb_channels = 3
+target_image_res = (224, 224)
 target_shape = (nb_channels,) + target_image_res
+use_vgg16_basemodel = True
 
 # the images are normalized between 0 and 1 (thanks to the ToTensor transformation) and then normalized between -1 and +1.
-transf = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,) * nb_channels, (0.5,) * nb_channels)])
-#test_set = dataset.FATDATA('HeadLegLess', nb_channels, train=False, transform=transf)
-test_set = dataset.LEGLESS(train=False, transform=transf)
+if not use_vgg16_basemodel:
+    transf = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,) * nb_channels, (0.5,) * nb_channels)])
+else:
+    transf = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))])
+test_set = dataset.FATDATA_CROP('HeadLegLess', nb_channels, train=False, transform=transf)
 
 # sort test set according to the ground truth value
 idx = np.argsort(test_set.test_values)
@@ -63,7 +66,7 @@ model_filename = 'network_state_dict.ckpt'
 assert os.path.exists(model_filename)
 
 print('Loading model file', model_filename)
-net = Net(target_shape, vgg16_basemodel=False, batch_normalization=True, dropout=False)
+net = Net(target_shape, vgg16_basemodel=True, batch_normalization=True, dropout=False)
 net.load_state_dict(torch.load(model_filename))
 net.eval() # must set the network in evaluation mode (by default, batch normalization and dropout are in training mode)
 
@@ -77,8 +80,30 @@ results_filename = 'saliency_maps.pth'
 # Generate saliency maps.
 
 if not os.path.exists(results_filename):
+    
+    saliency_maps = np.zeros((nb_samples,) + target_shape[1:], dtype=np.float32)
+    for i, data in enumerate(test_loader):
+        print('[%3d/%3d] %.2f %%' % (i + 1, nb_samples, 100 * (i + 1) / nb_samples))
+        image, target = data
+        if HAS_CUDA:
+            image = image.cuda(gpu_id)
+        ref_pred = net(Variable(image)).cpu().data[0][0]
+        ch, rows, cols = image[0].shape
+        k_size = 15
+        h_size = int(k_size / 2)
+        for u in range(h_size, rows, h_size):
+            for v in range(h_size, cols, h_size):
+                masked_image = image[0].clone()
+                masked_image[:, u-h_size:u+h_size, v-h_size:v+h_size] = 0  # mask color
+                coords = (u, v)
+                img = masked_image.unsqueeze(0)
+                if HAS_CUDA:
+                    img = img.cuda(gpu_id)
+                pred = net(Variable(img)).cpu().data[0][0]
+                WERj = pred - gt_values[i]
+                saliency_maps[i, coords[0], coords[1]] = WERj
 
-    def generate_occluded_images(image, k_size):
+    '''def generate_occluded_images(image, k_size):
         ch, rows, cols = image.shape
         nb_pixels = rows * cols
         masked_images = torch.zeros(nb_pixels, ch, rows, cols)
@@ -112,6 +137,7 @@ if not os.path.exists(results_filename):
             pred = net(Variable(img)).cpu().data[0][0]
             WERj = pred - gt_values[i]
             saliency_maps[i, coords[j][0], coords[j][1]] = WERj
+        del masked_images'''
     
     
     # ---------------------------------------------------------------------------
@@ -236,7 +262,7 @@ for i in range(nb_bins):
     plt.imshow(bin_mean[i], cmap=plt.get_cmap('jet'))
     #plt.clim(0, 1)
     plt.colorbar()
-    plt.pause(0.250)
+    plt.pause(0.80)
 
 
 #%% ---------------------------------------------------------------------------
