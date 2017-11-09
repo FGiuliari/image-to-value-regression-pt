@@ -337,8 +337,11 @@ class SHAPES(torch.utils.data.Dataset):
 #%% ---------------------------------------------------------------------------
 
 
-class LEGLESS(torch.utils.data.Dataset):
-    '''FatNet Dataset.
+#%% ---------------------------------------------------------------------------
+
+
+class FATDATA_CROP(torch.utils.data.Dataset):
+    '''FatNet Cropped Dataset.
 
     Args:
         name (string): Dataset name in ['Full', 'HeadLess', 'HeadLegLess', 'HeadLegArmLess'].
@@ -350,27 +353,30 @@ class LEGLESS(torch.utils.data.Dataset):
     
     '''
 
-    def __init__(self, train=True, transform=None):
+    def __init__(self, name, nb_channels, train=True, transform=None):
+        assert name in ['Full', 'HeadLess', 'HeadLegLess', 'HeadLegArmLess']
+        matfile = name + '_ch' + str(nb_channels) + '.mat'
         
-        if train:
-            matfile = 'train.mat'
-        else:
-            matfile = 'test.mat'
-            
-        self.matfile = '/media/Data/datasets/FatNet/legless/bin_data/' + matfile
+        self.nb_channels = nb_channels
+        self.matfile = '/media/Data/datasets/image-to-value-regression-using-deep-learning/sportsmen_crop/bin_data/' + matfile
         self.transform = transform
         self.train = train  # training set or test set
 
         data = sio.loadmat(self.matfile)
         images = np.squeeze(data['images'])
-        values = np.squeeze(data['targets'])
+        labels = np.squeeze(data['labels'])
+        values = np.squeeze(data['values'])
+        train_idx = np.squeeze(data['train_idx'])
+        test_idx = np.squeeze(data['test_idx'])
 
         if self.train:
-            self.train_data = images
-            self.train_values = values
+            self.train_data = images[train_idx]
+            self.train_labels = labels[train_idx]
+            self.train_values = values[train_idx]
         else:
-            self.test_data = images
-            self.test_values = values
+            self.test_data = images[test_idx]
+            self.test_labels = labels[test_idx]
+            self.test_values = values[test_idx]
 
     def __getitem__(self, index):
         '''
@@ -381,9 +387,9 @@ class LEGLESS(torch.utils.data.Dataset):
             tuple: (image, target).
         '''
         if self.train:
-            image, target = self.train_data[index], self.train_values[index]
+            image, target, label = self.train_data[index], self.train_values[index], self.train_labels[index]
         else:
-            image, target = self.test_data[index], self.test_values[index]
+            image, target, label = self.test_data[index], self.test_values[index], self.test_labels[index]
 
         # image is in the format HWC
         image = Image.fromarray(image.squeeze())
@@ -391,7 +397,7 @@ class LEGLESS(torch.utils.data.Dataset):
         if self.transform is not None:
             image = self.transform(image) # normalize between -1 and 1
 
-        return image, target
+        return image, target #, str(label)
     
     def __len__(self):
         if self.train:
