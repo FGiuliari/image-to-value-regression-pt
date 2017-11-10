@@ -48,8 +48,8 @@ use_data_augmentation_hflip = True # WARNING - data augmentation doubles the bat
 use_early_stop_triggers = True
 
 # name of the saved files
-model_filename = 'network_state_dict.ckpt'
-results_filename = 'training_results.pth'
+model_filename = 'network.pth'
+results_filename = 'results.pth'
 
 
 # -------------------------------------
@@ -99,7 +99,6 @@ test_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size, shuff
 import matplotlib.pyplot as plt
 
 
-'''
 def imshow(img):
     img = img / 2 + 0.5 # unnomalize
     plt.imshow(np.transpose(img.numpy(), (1, 2, 0))) # channel last
@@ -128,7 +127,6 @@ show_stats(train_set.train_values, 'TRAIN value distribution')
 show_stats(test_set.test_values, 'TEST value distribution')
 
 plt.show()
-'''
 
 
 #%% ---------------------------------------------------------------------------
@@ -216,7 +214,8 @@ def evaluate(predictions, ground_truth_values):
 if os.path.exists(model_filename):
 
     print('Found pretrained model. Loading file', model_filename)
-    net.load_state_dict(torch.load(model_filename))
+    #net.load_state_dict(torch.load(model_filename))
+    net = torch.load(model_filename)
 
 else:
 
@@ -313,7 +312,8 @@ else:
             # losses should increase, otherwise update the trigger variable
             if test_mae < best_test_mae and best_test_mae - test_mae >= 0.005:
                 print('Saving checkpoint at epoch', epoch + 1)
-                torch.save(net.state_dict(), model_filename) # best solution so far
+                #torch.save(net.state_dict(), model_filename) # best solution so far
+                torch.save(net, model_filename)
                 best_test_mae = test_mae
                 best_epoch_id = epoch
                 epochs_without_improvement = 0
@@ -342,6 +342,7 @@ else:
     if valid_training:
         #print('Saving final model...')
         #torch.save(net.state_dict(), model_filename)
+        #torch.save(net, model_filename)
         print('Best trained model at [epoch %d] with test [MAE %.2f]' % (best_epoch_id + 1, best_test_mae))
         loss_history = np.array(loss_history).astype(np.float32)
 
