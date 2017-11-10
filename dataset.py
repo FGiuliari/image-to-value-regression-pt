@@ -337,9 +337,6 @@ class SHAPES(torch.utils.data.Dataset):
 #%% ---------------------------------------------------------------------------
 
 
-#%% ---------------------------------------------------------------------------
-
-
 class FATDATA_CROP(torch.utils.data.Dataset):
     '''FatNet Cropped Dataset.
 
@@ -355,7 +352,7 @@ class FATDATA_CROP(torch.utils.data.Dataset):
 
     def __init__(self, name, nb_channels, train=True, transform=None):
         assert name in ['Full', 'HeadLess', 'HeadLegLess', 'HeadLegArmLess']
-        matfile = name + '_ch' + str(nb_channels) + '.mat'
+        matfile = name + '.mat'
         
         self.nb_channels = nb_channels
         self.matfile = '/media/Data/datasets/image-to-value-regression-using-deep-learning/sportsmen_crop/bin_data/' + matfile
@@ -387,9 +384,13 @@ class FATDATA_CROP(torch.utils.data.Dataset):
             tuple: (image, target).
         '''
         if self.train:
-            image, target, label = self.train_data[index], self.train_values[index], self.train_labels[index]
+            image, target = self.train_data[index], self.train_values[index]
         else:
-            image, target, label = self.test_data[index], self.test_values[index], self.test_labels[index]
+            image, target = self.test_data[index], self.test_values[index]
+
+        if self.nb_channels == 3:
+            image = np.asarray([image] * self.nb_channels)
+            image = np.transpose(image, (1, 2, 0))
 
         # image is in the format HWC
         image = Image.fromarray(image.squeeze())
@@ -397,7 +398,7 @@ class FATDATA_CROP(torch.utils.data.Dataset):
         if self.transform is not None:
             image = self.transform(image) # normalize between -1 and 1
 
-        return image, target #, str(label)
+        return image, target
     
     def __len__(self):
         if self.train:
