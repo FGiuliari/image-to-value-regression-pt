@@ -39,12 +39,15 @@ else:
 task = 'fat-from-depth' # age-from-faces, gender-from-depth, fat-from-depth
 
 nb_epochs = 60 # max number of training epochs
-batch_size = 16 # <== reduce this value if you encounter memory errors
+batch_size = 8 # <== reduce this value if you encounter memory errors
 shuffle_train_set = True
 use_batch_norm = True
 use_dropout = False
 use_vgg16_basemodel = True
-use_data_augmentation_hflip = True # WARNING - data augmentation doubles the batch size
+ # WARNING - data augmentation increases the batch size
+use_data_augmentation_hflip = True
+use_data_augmentation_noise = True 
+noise_scales = [0.05]
 use_early_stop_triggers = True
 
 # name of the saved files
@@ -99,6 +102,7 @@ test_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size, shuff
 import matplotlib.pyplot as plt
 
 
+'''
 def imshow(img):
     img = img / 2 + 0.5 # unnomalize
     plt.imshow(np.transpose(img.numpy(), (1, 2, 0))) # channel last
@@ -127,6 +131,7 @@ show_stats(train_set.train_values, 'TRAIN value distribution')
 show_stats(test_set.test_values, 'TEST value distribution')
 
 plt.show()
+'''
 
 
 #%% ---------------------------------------------------------------------------
@@ -140,23 +145,7 @@ from network import Net # definition of the (custom) network architecture
 print('Setting up network...')
 
 
-'''
-def weights_init(module):
-    classname = module.__class__.__name__
-    if classname.find('Conv') != -1:
-        module.weight.data.normal_(0.0, 0.01)
-        module.bias.data.fill_(0.0)
-    if classname.find('BatchNorm') != -1:
-        module.weight.data.normal_(0.0, 0.01)
-        module.bias.data.fill_(0.0)
-    if classname.find('Linear') != -1:
-        module.weight.data.normal_(0.0, 0.01)
-        module.bias.data.fill_(0.0)
-'''
-
-
 net = Net(input_shape=target_shape, vgg16_basemodel=use_vgg16_basemodel, batch_normalization=use_batch_norm, dropout=use_dropout)
-#net.apply(weights_init) # apply to each modules/elements the input function
 print(net)
 
 
@@ -169,8 +158,8 @@ if HAS_CUDA:
 # Training.
 
 
-criterion = torch.nn.SmoothL1Loss()
-optimizer = torch.optim.SGD(net.parameters(), lr=0.01, momentum=0.9, weight_decay=0.0005)
+criterion = torch.nn.SmoothL1Loss().cuda(gpu_id)
+optimizer = torch.optim.SGD(net.parameters(), lr=0.0001, momentum=0.9, weight_decay=0.0005)
 #optimizer = torch.optim.Adam(net.parameters(), lr=0.001, weight_decay=0.0005)
 
 
@@ -214,13 +203,18 @@ def evaluate(predictions, ground_truth_values):
 if os.path.exists(model_filename):
 
     print('Found pretrained model. Loading file', model_filename)
-    #net.load_state_dict(torch.load(model_filename))
     net = torch.load(model_filename)
 
 else:
+    
+    pretrained_model_filename = 'pretrained_model.pth'
+    if os.path.exists(pretrained_model_filename):
+        print('Found pretrained model. Loading weights...')
+        net = torch.load(pretrained_model_filename)
 
     print('Start training')
 
+    #best_test_loss = float('Inf')
     best_test_mae = float('Inf')
     best_epoch_id = 0
 
@@ -255,9 +249,17 @@ else:
             # data augmentation: flip horizontally and concatenate the
             # results to the given input batch
             if use_data_augmentation_hflip:
-                hflip = torch.from_numpy(inputs.numpy()[:,:,:,::-1].copy())
-                inputs = torch.cat((inputs, hflip))
+                flipped_images = inputs.numpy()[:,:,:,::-1].copy()
+                inputs = torch.cat((inputs, torch.from_numpy(flipped_images)))
                 targets = torch.cat((targets, targets))
+            
+            if use_data_augmentation_noise:
+                for noise_scale in noise_scales:
+                    images = inputs.numpy().copy()
+                    noise = (np.random.rand(*images.shape) - 0.5) * noise_scale
+                    noisy_images = (images + noise).astype(np.float32)
+                    inputs = torch.cat((inputs, torch.from_numpy(noisy_images)))
+                    targets = torch.cat((targets, targets))
             
             # for each batch, update the learning rate
             optimizer = lr_scheduler(optimizer, lr_decay=0.0005)
@@ -311,9 +313,11 @@ else:
             # check if the network is still learning: both the training and testing
             # losses should increase, otherwise update the trigger variable
             if test_mae < best_test_mae and best_test_mae - test_mae >= 0.005:
+            #if test_loss < best_test_loss or (test_mae < best_test_mae and best_test_mae - test_mae >= 0.005):
                 print('Saving checkpoint at epoch', epoch + 1)
                 #torch.save(net.state_dict(), model_filename) # best solution so far
                 torch.save(net, model_filename)
+                best_test_loss = test_loss
                 best_test_mae = test_mae
                 best_epoch_id = epoch
                 epochs_without_improvement = 0
@@ -354,7 +358,8 @@ else:
 if not os.path.exists(results_filename):
     
     # load best solution
-    net.load_state_dict(torch.load(model_filename))
+    #net.load_state_dict(torch.load(model_filename))
+    net = torch.load(model_filename)
 
     print('\nEvaluating testing set...')
     test_predictions = predict(net, test_set)
