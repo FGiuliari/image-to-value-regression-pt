@@ -62,12 +62,11 @@ test_loader = torch.utils.data.DataLoader(test_set, batch_size=1, shuffle=False,
 nb_samples = len(test_loader)
 gt_values = test_set.test_values
 
-model_filename = 'network_state_dict.ckpt'
+model_filename = 'network.pth'
 assert os.path.exists(model_filename)
 
 print('Loading model file', model_filename)
-net = Net(target_shape, vgg16_basemodel=True, batch_normalization=True, dropout=False)
-net.load_state_dict(torch.load(model_filename))
+net = torch.load(model_filename)
 net.eval() # must set the network in evaluation mode (by default, batch normalization and dropout are in training mode)
 
 if HAS_CUDA:
@@ -216,7 +215,7 @@ for i in range(nb_samples):
 # Compute bins.
 
 
-bin_thr = 2.5
+bin_thr = 1.8
 bins = []
 cur_bin = []
 min_gt_of_current_bin = gt_values[0]
@@ -267,7 +266,7 @@ for i in range(nb_bins):
 
 #%% ---------------------------------------------------------------------------
 # Show bin volume.
-    
+
 
 from mpl_toolkits.mplot3d import Axes3D
 
