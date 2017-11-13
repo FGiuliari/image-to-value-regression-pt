@@ -32,7 +32,7 @@ if not torch.cuda.is_available():
     print('CUDA not available, using CPU')
     HAS_CUDA = False
 else:
-    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
     gpu_id = 0
 
 # what are the tasks in this demo?
@@ -262,7 +262,7 @@ else:
                     targets = torch.cat((targets, targets))
             
             # for each batch, update the learning rate
-            optimizer = lr_scheduler(optimizer, lr_decay=0.0005)
+            optimizer = lr_scheduler(optimizer, lr_decay=0.001)
 
             # since the network is sent to the GPU, also the input tensors
             # must be sent to the graphics card
