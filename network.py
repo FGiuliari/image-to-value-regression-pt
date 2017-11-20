@@ -35,9 +35,11 @@ class Net(nn.Module):
         x = self._features(torch.autograd.Variable(torch.zeros(1, *input_shape)))
         self.nfts = x.numel()
         
-        self.fc1 = nn.Linear(self.nfts, 1024)
-        self.fc1_bn = nn.BatchNorm2d(1024)
-        self.fc2 = nn.Linear(1024, 1)
+        self.fc1 = nn.Linear(self.nfts, int(self.nfts * 0.1))
+        self.fc1_bn = nn.BatchNorm2d(int(self.nfts * 0.1))
+        self.fc2 = nn.Linear(int(self.nfts * 0.1), 256)
+        self.fc2_bn = nn.BatchNorm2d(256)
+        self.fc3 = nn.Linear(256, 1)
         
         # initialize weights
         self.reset_weights()
@@ -63,7 +65,14 @@ class Net(nn.Module):
         if self.use_dropout:
             x = F.dropout(x)
 
-        x = self.fc2(x)
+        if self.use_batch_normalization:
+            x = F.relu(self.fc2_bn(self.fc2(x)))
+        else:
+            x = F.relu(self.fc2(x))
+        if self.use_dropout:
+            x = F.dropout(x)
+
+        x = self.fc3(x)
         return x
     
     # compute at runtime the forward pass
@@ -109,13 +118,3 @@ class Net(nn.Module):
         self._xavier_init(self.fc1_bn)
         
         self._normal_init(self.fc2, 0.0, 0.001)
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
