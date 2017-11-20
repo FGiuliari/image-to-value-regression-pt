@@ -41,7 +41,6 @@ print('Loading data...')
 
 nb_channels = 3
 target_image_res = (224, 224)
-target_shape = (nb_channels,) + target_image_res
 use_vgg16_basemodel = True
 
 # the images are normalized between 0 and 1 (thanks to the ToTensor transformation) and then normalized between -1 and +1.
@@ -53,7 +52,7 @@ test_set = dataset.FATDATA_CROP('HeadLegLess', nb_channels, train=False, transfo
 
 # sort test set according to the ground truth value
 idx = np.argsort(test_set.test_values)
-idx = np.asarray([idx[i] for i in range(0, idx.size, 9)])
+idx = np.asarray([idx[i] for i in range(0, idx.size, 1)])
 test_set.test_values = test_set.test_values[idx]
 test_set.test_data = test_set.test_data[idx]
 
@@ -75,13 +74,39 @@ if HAS_CUDA:
 results_filename = 'saliency_maps.pth'
 
 
+def compute_saliency_map(model, tensor_image, k_size, ref_target, thr=0.0):
+    assert k_size >= 3 and k_size % 2 == 1
+
+    saliency_values = []
+    ch, rows, cols = tensor_image.shape
+    h_size = int(k_size / 2)
+
+    for u in range(h_size, rows, h_size):
+        for v in range(h_size, cols, h_size):
+            masked_image = tensor_image.clone()
+            mask_color = torch.mean(masked_image[:, u-h_size:u+h_size, v-h_size:v+h_size])
+            masked_image[:, u-h_size:u+h_size, v-h_size:v+h_size] = mask_color
+            img = masked_image.unsqueeze(0)
+            pred = model(torch.autograd.Variable(img)).cpu().data[0][0]
+            pred_err = pred - ref_target
+            if np.abs(pred_err) < thr:
+                pred_err = 0.0
+            saliency_values.append(pred_err)
+    
+    size = int(np.sqrt(len(saliency_values)))
+    saliency_map = np.array(saliency_values, dtype=np.float32)
+    saliency_map = saliency_map.reshape((size, size))
+
+    return saliency_map
+
+
 #%% ---------------------------------------------------------------------------
 # Generate saliency maps.
 
 if not os.path.exists(results_filename):
     
-    saliency_maps = np.zeros((nb_samples,) + target_shape[1:], dtype=np.float32)
-    for i, data in enumerate(test_loader):
+    saliency_maps = np.zeros((nb_samples,) + target_image_res, dtype=np.float32)
+    '''for i, data in enumerate(test_loader):
         print('[%3d/%3d] %.2f %%' % (i + 1, nb_samples, 100 * (i + 1) / nb_samples))
         image, target = data
         if HAS_CUDA:
@@ -100,43 +125,18 @@ if not os.path.exists(results_filename):
                     img = img.cuda(gpu_id)
                 pred = net(Variable(img)).cpu().data[0][0]
                 WERj = pred - gt_values[i]
-                saliency_maps[i, coords[0], coords[1]] = WERj
+                saliency_maps[i, coords[0], coords[1]] = WERj'''
 
-    '''def generate_occluded_images(image, k_size):
-        ch, rows, cols = image.shape
-        nb_pixels = rows * cols
-        masked_images = torch.zeros(nb_pixels, ch, rows, cols)
-        coords = np.zeros((nb_pixels, 2), dtype=np.uint32)
-        it = 0
-        h_size = int(k_size / 2)
-        for u in range(h_size, rows, h_size):
-            for v in range(h_size, cols, h_size):
-                masked_images[it] = image.clone()
-                masked_images[it][:, u-h_size:u+h_size, v-h_size:v+h_size] = 0  # mask color
-                coords[it] = (u, v)
-                it += 1
-        masked_images = masked_images[:it]
-        coords = coords[:it]
-        return masked_images, coords
-    
-    
-    saliency_maps = np.zeros((nb_samples,) + target_shape[1:], dtype=np.float32)
+    from scipy.misc import imresize
+
     for i, data in enumerate(test_loader):
         print('[%3d/%3d] %.2f %%' % (i + 1, nb_samples, 100 * (i + 1) / nb_samples))
         image, target = data
         if HAS_CUDA:
             image = image.cuda(gpu_id)
-        ref_pred = net(Variable(image)).cpu().data[0][0]
-        masked_images, coords = generate_occluded_images(image[0], k_size=15)
-        nb_masked_images = masked_images.shape[0]
-        for j in range(0, nb_masked_images):
-            img = masked_images[j].unsqueeze(0)
-            if HAS_CUDA:
-                img = img.cuda(gpu_id)
-            pred = net(Variable(img)).cpu().data[0][0]
-            WERj = pred - gt_values[i]
-            saliency_maps[i, coords[j][0], coords[j][1]] = WERj
-        del masked_images'''
+        smap = compute_saliency_map(net, image[0], 23, gt_values[i])
+        mask = imresize(smap, target_image_res)
+        saliency_maps[i] = mask
     
     
     # ---------------------------------------------------------------------------
@@ -289,4 +289,4 @@ for i in range(bin_mean.shape[0]):
     #ax.set_zlim(0.0, 0.06)
     plt.pause(1.0)
 
-plt.show()
+#plt.show()
