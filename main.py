@@ -43,7 +43,7 @@ batch_size = 8 # <== reduce this value if you encounter memory errors
 shuffle_train_set = True
 use_batch_norm = True
 use_dropout = False
-use_vgg16_basemodel = True
+use_vgg16_basemodel = False
  # WARNING - data augmentation increases the batch size
 use_data_augmentation_hflip = True
 use_data_augmentation_noise = True 
@@ -159,7 +159,7 @@ if HAS_CUDA:
 
 
 criterion = torch.nn.SmoothL1Loss().cuda(gpu_id)
-optimizer = torch.optim.SGD(net.parameters(), lr=0.0001, momentum=0.9, weight_decay=0.0005)
+optimizer = torch.optim.SGD(net.parameters(), lr=0.003, momentum=0.9, weight_decay=0.0005)
 #optimizer = torch.optim.Adam(net.parameters(), lr=0.001, weight_decay=0.0005)
 
 
