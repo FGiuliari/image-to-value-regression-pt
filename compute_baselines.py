@@ -16,6 +16,16 @@ import dataset
 import matplotlib.pyplot as plt
 import numpy as np
 import os
+import argparse
+
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--features', type=str, required=True)
+parser.add_argument('--regressor', type=str, required=True)
+args = parser.parse_args()
+
+assert args.features in ['hog', 'pca', 'vgg16']
+assert args.regressor in ['svm', 'random_forest']
 
 
 #%% ---------------------------------------------------------------------------
@@ -34,10 +44,10 @@ else:
     torch.cuda.manual_seed(seed)
     gpu_id = 0
     
-task = 'fat-from-depth' # age-from-faces, gender-from-depth, fat-from-depth
+task = 'shapes' # age-from-faces, gender-from-depth, fat-from-depth, shapes
 dsname = 'HeadLegArmLess' # Full, HeadLess, HeadLegLess, HeadLegArmLess
-features_to_extract = 'hog' # hog, pca, vgg16
-regressor_mode = 'svm' # svm, random_forest
+features_to_extract = args.features # hog, pca, vgg16
+regressor_mode = args.regressor # svm, random_forest
 shuffle_train_set = True
 
 baseline_folder = 'baseline_results/' + task + '/'
@@ -80,6 +90,10 @@ else:
     if task == 'fat-from-depth':
         train_set = dataset.FATDATA(dsname, nb_channels, train=True, transform=transf)
         test_set = dataset.FATDATA(dsname, nb_channels, train=False, transform=transf)
+
+    if task == 'shapes':
+        train_set = dataset.SHAPES(train=True, transform=transf)
+        test_set = dataset.SHAPES(train=False, transform=transf)
 
     batch_size = 1 if features_to_extract in ['hog', 'pca'] else 32
     train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, shuffle=shuffle_train_set, num_workers=0)
