@@ -39,7 +39,7 @@ else:
 task = 'fat-from-depth' # age-from-faces, gender-from-depth, fat-from-depth
 
 nb_epochs = 60 # max number of training epochs
-batch_size = 8 # <== reduce this value if you encounter memory errors
+batch_size = 16 # <== reduce this value if you encounter memory errors
 shuffle_train_set = True
 use_batch_norm = True
 use_dropout = False
@@ -102,7 +102,6 @@ test_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size, shuff
 import matplotlib.pyplot as plt
 
 
-'''
 def imshow(img):
     img = img / 2 + 0.5 # unnomalize
     plt.imshow(np.transpose(img.numpy(), (1, 2, 0))) # channel last
@@ -131,7 +130,6 @@ show_stats(train_set.train_values, 'TRAIN value distribution')
 show_stats(test_set.test_values, 'TEST value distribution')
 
 plt.show()
-'''
 
 
 #%% ---------------------------------------------------------------------------
@@ -139,13 +137,14 @@ plt.show()
 
 
 from torch.autograd import Variable
-from network import Net # definition of the (custom) network architecture
+from network import Net, MobileNet # definition of the (custom) network architecture
 
 
 print('Setting up network...')
 
 
 net = Net(input_shape=target_shape, vgg16_basemodel=use_vgg16_basemodel, batch_normalization=use_batch_norm, dropout=use_dropout)
+#net = MobileNet(input_shape=target_shape, nb_classes=1)
 print(net)
 
 
@@ -306,8 +305,8 @@ else:
             train_loss, train_mae = evaluate(train_predictions, torch.FloatTensor(train_set.train_values))
             test_predictions = predict(net, test_set)
             test_loss, test_mae = evaluate(test_predictions, torch.FloatTensor(test_set.test_values))
-            print('Loss =>\tTrain: %.3f\tTest: %.3f' % (train_loss, test_loss))
-            print('MAE ==>\tTrain: %.2f\tTest: %.2f' % (train_mae, test_mae))
+            print('Train =>\tLoss: %.3f\tMAE: %.3f' % (train_loss, train_mae))
+            print('Test ==>\tLoss: %.3f\tMAE: %.3f' % (test_loss, test_mae))
             loss_history = [[train_loss, test_loss]] if loss_history is None else loss_history + [[train_loss, test_loss]]
 
             # check if the network is still learning: both the training and testing
