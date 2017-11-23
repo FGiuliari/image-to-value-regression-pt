@@ -39,7 +39,7 @@ else:
 task = 'fat-from-depth' # age-from-faces, gender-from-depth, fat-from-depth
 
 nb_epochs = 60 # max number of training epochs
-batch_size = 16 # <== reduce this value if you encounter memory errors
+batch_size = 8 # <== reduce this value if you encounter memory errors
 shuffle_train_set = True
 use_batch_norm = True
 use_dropout = False
@@ -102,6 +102,7 @@ test_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size, shuff
 import matplotlib.pyplot as plt
 
 
+'''
 def imshow(img):
     img = img / 2 + 0.5 # unnomalize
     plt.imshow(np.transpose(img.numpy(), (1, 2, 0))) # channel last
@@ -130,6 +131,7 @@ show_stats(train_set.train_values, 'TRAIN value distribution')
 show_stats(test_set.test_values, 'TEST value distribution')
 
 plt.show()
+'''
 
 
 #%% ---------------------------------------------------------------------------
