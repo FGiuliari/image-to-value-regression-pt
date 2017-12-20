@@ -43,7 +43,7 @@ batch_size = 8 # <== reduce this value if you encounter memory errors
 shuffle_train_set = True
 use_batch_norm = True
 use_dropout = False
-use_vgg16_basemodel = False
+use_vgg16_basemodel = True
  # WARNING - data augmentation increases the batch size
 use_data_augmentation_hflip = True
 use_data_augmentation_noise = True 
@@ -159,7 +159,7 @@ if HAS_CUDA:
 # Training.
 
 
-criterion = torch.nn.SmoothL1Loss().cuda(gpu_id)
+criterion = torch.nn.CrossEntropyLoss().cuda(gpu_id)
 optimizer = torch.optim.SGD(net.parameters(), lr=0.003, momentum=0.9, weight_decay=0.0005)
 #optimizer = torch.optim.Adam(net.parameters(), lr=0.001, weight_decay=0.0005)
 
@@ -194,8 +194,10 @@ def evaluate(predictions, ground_truth_values):
     '''Compute the mean absolute error of the predictions.
     The parameters must be pytorch tensors.
     '''
-    loss = criterion(Variable(predictions, requires_grad=False), Variable(ground_truth_values, requires_grad=False))
-    residuals = predictions - ground_truth_values
+    tmp = ground_truth_values.type(torch.LongTensor)
+    loss = criterion(Variable(predictions, requires_grad=False), Variable(tmp, requires_grad=False))
+    max_vals, max_idx = torch.max(predictions, 1)
+    residuals = max_idx.type(torch.FloatTensor) - ground_truth_values
     abs_error = torch.abs(residuals)
     return loss.data[0], torch.mean(abs_error)
 
@@ -246,6 +248,7 @@ else:
         # batch loop
         for i, data in enumerate(train_loader):
             inputs, targets = data
+            targets = targets.type(torch.LongTensor)
             
             # data augmentation: flip horizontally and concatenate the
             # results to the given input batch
@@ -401,12 +404,13 @@ if loss_history is not None:
 
 # show prediction results
 plt.figure()
-xx = np.linspace(1, test_predictions.numel(), test_predictions.numel())
+xx = np.linspace(1, test_predictions.numel() / 2, test_predictions.numel() / 2)
 gt = ground_truth_values.squeeze().numpy()
 yy = test_predictions.squeeze().numpy()
 idx = np.argsort(gt)
 gt = gt[idx]
 yy = yy[idx]
+yy = np.argmax(yy, 1)
 err = yy - gt
 plt.subplot(2,1,1)
 plt.title('Predictions')

@@ -363,6 +363,9 @@ class FATDATA_CROP(torch.utils.data.Dataset):
         images = np.squeeze(data['images'])
         labels = np.squeeze(data['labels'])
         values = np.squeeze(data['values'])
+        idx = np.where(values < np.median(values))[0]
+        values = np.ones(values.shape)
+        values[idx] = 0
         train_idx = np.squeeze(data['train_idx'])
         test_idx = np.squeeze(data['test_idx'])
 
