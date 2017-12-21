@@ -25,21 +25,31 @@ class Net(nn.Module):
             self.enable_base_model_training(True)
         else:
             self.pool = nn.MaxPool2d(2, 2)
-            self.conv1 = nn.Conv2d(input_shape[0], 32, 5)
-            self.conv1_bn = nn.BatchNorm2d(32)
-            self.conv2 = nn.Conv2d(32, 64, 3)
-            self.conv2_bn = nn.BatchNorm2d(64)
+            
+            self.conv3x3_1 = nn.Conv2d(input_shape[0], 8, 3, padding=1)
+            self.conv3x3_1_bn = nn.BatchNorm2d(8)
+            self.conv5x5_1 = nn.Conv2d(input_shape[0], 8, 5, padding=2)
+            self.conv5x5_1_bn = nn.BatchNorm2d(8)
+            self.conv7x7_1 = nn.Conv2d(input_shape[0], 8, 7, padding=3)
+            self.conv7x7_1_bn = nn.BatchNorm2d(8)
+            
+            self.conv3x3_2 = nn.Conv2d(8, 16, 3, padding=1)
+            self.conv3x3_2_bn = nn.BatchNorm2d(16)
+            self.conv5x5_2 = nn.Conv2d(8, 16, 5, padding=2)
+            self.conv5x5_2_bn = nn.BatchNorm2d(16)
+            self.conv7x7_2 = nn.Conv2d(8, 16, 7, padding=3)
+            self.conv7x7_2_bn = nn.BatchNorm2d(16)
 
         # to compute the number of vectorized features we need to compute
         # once the forward pass on the feature_extractor
         x = self._features(torch.autograd.Variable(torch.zeros(1, *input_shape)))
         self.nfts = x.numel()
         
-        self.fc1 = nn.Linear(self.nfts, int(self.nfts * 0.1))
-        self.fc1_bn = nn.BatchNorm2d(int(self.nfts * 0.1))
-        self.fc2 = nn.Linear(int(self.nfts * 0.1), 256)
-        self.fc2_bn = nn.BatchNorm2d(256)
-        self.fc3 = nn.Linear(256, 2)
+        self.fc1 = nn.Linear(self.nfts, 256)
+        self.fc1_bn = nn.BatchNorm2d(256)
+        self.fc2 = nn.Linear(256, 128)
+        self.fc2_bn = nn.BatchNorm2d(128)
+        self.fc3 = nn.Linear(128, 2)
         
         # initialize weights
         self.reset_weights()
@@ -49,11 +59,27 @@ class Net(nn.Module):
             x = self.base_model(x)
         else:
             if self.use_batch_normalization:
-                x = self.pool(F.relu(self.conv1_bn(self.conv1(x))))
-                x = self.pool(F.relu(self.conv2_bn(self.conv2(x))))
+                feat_3x3 = self.pool(F.relu(self.conv3x3_1_bn(self.conv3x3_1(x))))
+                feat_5x5 = self.pool(F.relu(self.conv5x5_1_bn(self.conv5x5_1(x))))
+                feat_7x7 = self.pool(F.relu(self.conv7x7_1_bn(self.conv7x7_1(x))))
             else:
-                x = self.pool(F.relu(self.conv1(x)))
-                x = self.pool(F.relu(self.conv2(x)))
+                feat_3x3 = self.pool(F.relu(self.conv3x3_1(x)))
+                feat_5x5 = self.pool(F.relu(self.conv5x5_1(x)))
+                feat_7x7 = self.pool(F.relu(self.conv7x7_1(x)))
+
+            x = (feat_3x3 + feat_5x5 + feat_7x7) / 3.
+
+            if self.use_batch_normalization:
+                feat_3x3 = self.pool(F.relu(self.conv3x3_2_bn(self.conv3x3_2(x))))
+                feat_5x5 = self.pool(F.relu(self.conv5x5_2_bn(self.conv5x5_2(x))))
+                feat_7x7 = self.pool(F.relu(self.conv7x7_2_bn(self.conv7x7_2(x))))
+            else:
+                feat_3x3 = self.pool(F.relu(self.conv3x3_2(x)))
+                feat_5x5 = self.pool(F.relu(self.conv5x5_2(x)))
+                feat_7x7 = self.pool(F.relu(self.conv7x7_2(x)))
+
+            x = (feat_3x3 + feat_5x5 + feat_7x7) / 3.
+            
         return x
     
     def _regressor(self, x):
@@ -89,7 +115,7 @@ class Net(nn.Module):
             for param in self.base_model.parameters():
                 self.base_model.requires_grad = enable
     
-    def _normal_init(self, module, mu, std):
+    def _normal_init(self, module, mu=0., std=0.01):
         module.weight.data.normal_(mu, std)
         module.bias.data.fill_(mu)
     
@@ -108,14 +134,22 @@ class Net(nn.Module):
     def reset_weights(self):
         
         if not self.use_base_model:
-            self._xavier_init(self.conv1)
-            self._xavier_init(self.conv1_bn)
-            
-            self._xavier_init(self.conv2)
-            self._xavier_init(self.conv2_bn)
+            self._normal_init(self.conv3x3_1)
+            self._normal_init(self.conv3x3_1_bn)
+            self._normal_init(self.conv5x5_1)
+            self._normal_init(self.conv5x5_1_bn)
+            self._normal_init(self.conv7x7_1)
+            self._normal_init(self.conv7x7_1_bn)
+
+            self._normal_init(self.conv3x3_2)
+            self._normal_init(self.conv3x3_2_bn)
+            self._normal_init(self.conv5x5_2)
+            self._normal_init(self.conv5x5_2_bn)
+            self._normal_init(self.conv7x7_2)
+            self._normal_init(self.conv7x7_2_bn)
         
-        self._xavier_init(self.fc1)
-        self._xavier_init(self.fc1_bn)
+        self._normal_init(self.fc1)
+        self._normal_init(self.fc1_bn)
         
         self._normal_init(self.fc2, 0.0, 0.001)
 
