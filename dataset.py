@@ -356,26 +356,37 @@ class FATDATA_CROP(torch.utils.data.Dataset):
         
         self.nb_channels = nb_channels
         self.matfile = '/media/Data/datasets/image-to-value-regression-using-deep-learning/sportsmen_crop/bin_data/' + matfile
+        #self.matfile = '/media/Data/datasets/image-to-value-regression-using-deep-learning/sportsmen_crop_aug/' + matfile
         self.transform = transform
         self.train = train  # training set or test set
 
         data = sio.loadmat(self.matfile)
         images = np.squeeze(data['images'])
-        labels = np.squeeze(data['labels'])
+        #labels = np.squeeze(data['labels'])
         values = np.squeeze(data['values'])
-        idx = np.where(values < np.median(values))[0]
-        values = np.ones(values.shape)
-        values[idx] = 0
         train_idx = np.squeeze(data['train_idx'])
         test_idx = np.squeeze(data['test_idx'])
 
+        min_val = np.min(values)
+        max_val = np.max(values)
+        nb_classes = 11
+        step = (max_val - min_val) / nb_classes
+
+        new_values = np.zeros(values.shape)
+        for c in range(nb_classes):
+            idx = np.where(values > c * step)[0]
+            new_values[idx] = c
+
+        values = new_values.copy()
+
+
         if self.train:
             self.train_data = images[train_idx]
-            self.train_labels = labels[train_idx]
+            #self.train_labels = labels[train_idx]
             self.train_values = values[train_idx]
         else:
             self.test_data = images[test_idx]
-            self.test_labels = labels[test_idx]
+            #self.test_labels = labels[test_idx]
             self.test_values = values[test_idx]
 
     def __getitem__(self, index):

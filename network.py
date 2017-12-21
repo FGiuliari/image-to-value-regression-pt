@@ -49,7 +49,7 @@ class Net(nn.Module):
         self.fc1_bn = nn.BatchNorm2d(256)
         self.fc2 = nn.Linear(256, 128)
         self.fc2_bn = nn.BatchNorm2d(128)
-        self.fc3 = nn.Linear(128, 2)
+        self.fc3 = nn.Linear(128, 11)
         
         # initialize weights
         self.reset_weights()

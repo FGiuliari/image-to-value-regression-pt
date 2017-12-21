@@ -197,9 +197,9 @@ def evaluate(predictions, ground_truth_values):
     tmp = ground_truth_values.type(torch.LongTensor)
     loss = criterion(Variable(predictions, requires_grad=False), Variable(tmp, requires_grad=False))
     max_vals, max_idx = torch.max(predictions, 1)
-    residuals = max_idx.type(torch.FloatTensor) - ground_truth_values
-    abs_error = torch.abs(residuals)
-    return loss.data[0], torch.mean(abs_error)
+    residuals = max_idx.type(torch.FloatTensor) == ground_truth_values
+    accuracy = torch.mean(residuals.type(torch.FloatTensor))
+    return loss.data[0], 1 - accuracy
 
 
 # verify that the model exists
@@ -310,8 +310,8 @@ else:
             train_loss, train_mae = evaluate(train_predictions, torch.FloatTensor(train_set.train_values))
             test_predictions = predict(net, test_set)
             test_loss, test_mae = evaluate(test_predictions, torch.FloatTensor(test_set.test_values))
-            print('Train =>\tLoss: %.3f\tMAE: %.3f' % (train_loss, train_mae))
-            print('Test ==>\tLoss: %.3f\tMAE: %.3f' % (test_loss, test_mae))
+            print('Train =>\tLoss: %.3f\tAcc: %.3f' % (train_loss, 1 - train_mae))
+            print('Test ==>\tLoss: %.3f\tAcc: %.3f' % (test_loss, 1 - test_mae))
             loss_history = [[train_loss, test_loss]] if loss_history is None else loss_history + [[train_loss, test_loss]]
 
             # check if the network is still learning: both the training and testing
@@ -351,7 +351,7 @@ else:
         #print('Saving final model...')
         #torch.save(net.state_dict(), model_filename)
         #torch.save(net, model_filename)
-        print('Best trained model at [epoch %d] with test [MAE %.2f]' % (best_epoch_id + 1, best_test_mae))
+        print('Best trained model at [epoch %d] with test [Acc %.2f]' % (best_epoch_id + 1, 1 - best_test_mae))
         loss_history = np.array(loss_history).astype(np.float32)
 
 
@@ -383,7 +383,7 @@ else:
 
 print('\nFinal results:')
 print('Loss: %.3f' % test_loss)
-print('MAE: %.2f' % test_mae)
+print('Acc: %.2f' % (1 - test_mae))
 
 
 #%% ---------------------------------------------------------------------------
@@ -404,7 +404,7 @@ if loss_history is not None:
 
 # show prediction results
 plt.figure()
-xx = np.linspace(1, test_predictions.numel() / 2, test_predictions.numel() / 2)
+xx = np.linspace(1, test_predictions.shape[0], test_predictions.shape[0])
 gt = ground_truth_values.squeeze().numpy()
 yy = test_predictions.squeeze().numpy()
 idx = np.argsort(gt)
